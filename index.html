@@ -255,6 +255,19 @@ body {
     font-weight: 600;
 }
 
+.home-backup {
+    margin: 20px 16px 0;
+    display: flex;
+    gap: 10px;
+}
+
+.home-backup .btn {
+    flex: 1;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+}
+
 /* ========== Vocab Page ========== */
 .vocab-toolbar {
     display: flex;
@@ -810,6 +823,15 @@ body {
 /* ========== History Page ========== */
 .history-list { padding: 0 16px; }
 
+.scroll-loader {
+    text-align: center;
+    padding: 20px 0;
+    color: var(--text-light);
+    font-size: 14px;
+}
+
+.scroll-loader.hidden { display: none; }
+
 .history-item {
     background: var(--card-bg);
     border-radius: var(--radius-lg);
@@ -972,6 +994,7 @@ body {
     </div>
     <div id="toast-container"></div>
     <input type="file" id="csv-file-input" accept=".csv" style="display:none">
+    <input type="file" id="backup-file-input" accept=".json" style="display:none">
 
 <script>
 /* ==========================================================================
@@ -1016,29 +1039,125 @@ function escapeHtml(str) {
 }
 
 /* ==========================================================================
-   STORAGE LAYER
+   STORAGE LAYER  (IndexedDB with in-memory cache)
    ========================================================================== */
 
-const Storage = {
-    get(key, fallback = null) {
-        try {
-            const raw = localStorage.getItem(key);
-            return raw ? JSON.parse(raw) : fallback;
-        } catch { return fallback; }
-    },
-    set(key, value) {
-        localStorage.setItem(key, JSON.stringify(value));
-    },
-    remove(key) {
-        localStorage.removeItem(key);
-    }
-};
+const DB_NAME = 'rtsw_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'kv';
 
 const KEYS = {
     WORDS: 'rtsw_words',
     PLAN: 'rtsw_plan',
     SESSIONS: 'rtsw_sessions',
     CURRENT: 'rtsw_current',
+};
+
+const Storage = {
+    _db: null,
+    _cache: {},
+
+    async openDB() {
+        if (this._db) return this._db;
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            req.onsuccess = () => { this._db = req.result; resolve(this._db); };
+            req.onerror = () => reject(req.error);
+        });
+    },
+
+    async init() {
+        const db = await this.openDB();
+
+        const migratedFlag = '__rtsw_migrated';
+        if (!localStorage.getItem(migratedFlag)) {
+            const keysToMigrate = Object.values(KEYS);
+            for (const key of keysToMigrate) {
+                const raw = localStorage.getItem(key);
+                if (raw !== null) {
+                    try {
+                        const val = JSON.parse(raw);
+                        this._cache[key] = val;
+                    } catch { /* skip bad data */ }
+                }
+            }
+            if (Object.keys(this._cache).length > 0) {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                for (const [k, v] of Object.entries(this._cache)) {
+                    store.put(v, k);
+                }
+                await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+            }
+            localStorage.setItem(migratedFlag, '1');
+        }
+
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const allKeys = await new Promise((res, rej) => {
+            const r = store.getAllKeys();
+            r.onsuccess = () => res(r.result);
+            r.onerror = rej;
+        });
+        for (const key of allKeys) {
+            const val = await new Promise((res, rej) => {
+                const r = store.get(key);
+                r.onsuccess = () => res(r.result);
+                r.onerror = rej;
+            });
+            this._cache[key] = val;
+        }
+    },
+
+    get(key, fallback = null) {
+        const val = this._cache[key];
+        return val !== undefined ? val : fallback;
+    },
+
+    set(key, value) {
+        this._cache[key] = value;
+        this._persistKey(key, value);
+    },
+
+    remove(key) {
+        delete this._cache[key];
+        this._deleteKey(key);
+    },
+
+    _persistKey(key, value) {
+        if (!this._db) return;
+        const tx = this._db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(value, key);
+    },
+
+    _deleteKey(key) {
+        if (!this._db) return;
+        const tx = this._db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete(key);
+    },
+
+    async exportAll() {
+        const data = {};
+        for (const key of Object.values(KEYS)) {
+            const val = this.get(key);
+            if (val !== null) data[key] = val;
+        }
+        return data;
+    },
+
+    async importAll(data) {
+        for (const [key, val] of Object.entries(data)) {
+            if (Object.values(KEYS).includes(key)) {
+                this.set(key, val);
+            }
+        }
+    }
 };
 
 /* ==========================================================================
@@ -1416,52 +1535,67 @@ function renderHome() {
                 学习了 ${todaySession.words.length} 个单词，用了 ${todaySession.totalRounds} 轮完成
             </div>
         </div>` : ''}
+        <div class="home-backup">
+            <button class="btn btn-secondary" onclick="exportBackup()">💾 导出备份</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('backup-file-input').click()">📂 导入恢复</button>
+        </div>
     `;
 }
 
 /* ==========================================================================
-   VOCAB PAGE
+   VOCAB PAGE  (infinite scroll)
    ========================================================================== */
 
 let vocabSearchQuery = '';
+const VOCAB_PAGE_SIZE = 30;
+let vocabAllWords = [];
+let vocabRenderedCount = 0;
+let vocabScrollObserver = null;
+
+function renderVocabItemHtml(w) {
+    const s = w.stats;
+    let statsText = '未学习';
+    if (s.reviewCount > 0) {
+        const acc = Math.round(s.correctCount / s.reviewCount * 100);
+        statsText = `${acc}% · ${s.reviewCount}次`;
+    }
+    return `
+    <div class="vocab-item" onclick="navigate('word/${encodeURIComponent(w.english)}')">
+        <div class="vocab-item-main">
+            <div class="vocab-item-en">${escapeHtml(w.english)}</div>
+            <div class="vocab-item-cn">${escapeHtml(w.chinese)}</div>
+        </div>
+        <div class="vocab-item-stats">${statsText}</div>
+    </div>`;
+}
+
+function vocabLoadMore() {
+    const itemsEl = document.getElementById('vocab-items');
+    const loaderEl = document.getElementById('vocab-loader');
+    if (!itemsEl || vocabRenderedCount >= vocabAllWords.length) {
+        if (loaderEl) loaderEl.classList.add('hidden');
+        return;
+    }
+    const batch = vocabAllWords.slice(vocabRenderedCount, vocabRenderedCount + VOCAB_PAGE_SIZE);
+    itemsEl.insertAdjacentHTML('beforeend', batch.map(renderVocabItemHtml).join(''));
+    vocabRenderedCount += batch.length;
+    if (vocabRenderedCount >= vocabAllWords.length && loaderEl) {
+        loaderEl.classList.add('hidden');
+    }
+}
+
+function setupVocabScroll() {
+    if (vocabScrollObserver) vocabScrollObserver.disconnect();
+    const loaderEl = document.getElementById('vocab-loader');
+    if (!loaderEl) return;
+    vocabScrollObserver = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) vocabLoadMore();
+    }, { rootMargin: '200px' });
+    vocabScrollObserver.observe(loaderEl);
+}
 
 function renderVocab() {
-    const words = WordStore.search(vocabSearchQuery);
     const total = WordStore.count();
-
-    let listHtml;
-    if (total === 0) {
-        listHtml = `
-            <div class="vocab-empty">
-                <div class="empty-icon">📭</div>
-                <p>词库还是空的哦</p>
-                <p>点击上方「导入」按钮添加单词</p>
-            </div>`;
-    } else if (words.length === 0) {
-        listHtml = `
-            <div class="vocab-empty">
-                <div class="empty-icon">🔍</div>
-                <p>没有找到匹配的单词</p>
-            </div>`;
-    } else {
-        listHtml = `<div class="vocab-count">共 ${words.length} 个单词</div>` +
-            words.map(w => {
-                const s = w.stats;
-                let statsText = '未学习';
-                if (s.reviewCount > 0) {
-                    const acc = Math.round(s.correctCount / s.reviewCount * 100);
-                    statsText = `${acc}% · ${s.reviewCount}次`;
-                }
-                return `
-                <div class="vocab-item" onclick="navigate('word/${encodeURIComponent(w.english)}')">
-                    <div class="vocab-item-main">
-                        <div class="vocab-item-en">${escapeHtml(w.english)}</div>
-                        <div class="vocab-item-cn">${escapeHtml(w.chinese)}</div>
-                    </div>
-                    <div class="vocab-item-stats">${statsText}</div>
-                </div>`;
-            }).join('');
-    }
 
     document.getElementById('page-vocab').innerHTML = `
         <div class="page-header">
@@ -1475,16 +1609,28 @@ function renderVocab() {
                 oninput="vocabSearchQuery=this.value; renderVocabList();">
             <button class="vocab-import-btn" onclick="triggerImport()">+ 导入</button>
         </div>
-        <div class="vocab-list" id="vocab-list-container">${listHtml}</div>
+        <div class="vocab-list" id="vocab-list-container"></div>
     `;
+    renderVocabList();
 }
 
 function renderVocabList() {
-    const words = WordStore.search(vocabSearchQuery);
+    vocabAllWords = WordStore.search(vocabSearchQuery);
+    vocabRenderedCount = 0;
     const container = document.getElementById('vocab-list-container');
     if (!container) return;
 
-    if (words.length === 0 && vocabSearchQuery) {
+    const total = WordStore.count();
+    if (total === 0) {
+        container.innerHTML = `
+            <div class="vocab-empty">
+                <div class="empty-icon">📭</div>
+                <p>词库还是空的哦</p>
+                <p>点击上方「导入」按钮添加单词</p>
+            </div>`;
+        return;
+    }
+    if (vocabAllWords.length === 0) {
         container.innerHTML = `
             <div class="vocab-empty">
                 <div class="empty-icon">🔍</div>
@@ -1493,23 +1639,13 @@ function renderVocabList() {
         return;
     }
 
-    container.innerHTML = `<div class="vocab-count">共 ${words.length} 个单词</div>` +
-        words.map(w => {
-            const s = w.stats;
-            let statsText = '未学习';
-            if (s.reviewCount > 0) {
-                const acc = Math.round(s.correctCount / s.reviewCount * 100);
-                statsText = `${acc}% · ${s.reviewCount}次`;
-            }
-            return `
-            <div class="vocab-item" onclick="navigate('word/${encodeURIComponent(w.english)}')">
-                <div class="vocab-item-main">
-                    <div class="vocab-item-en">${escapeHtml(w.english)}</div>
-                    <div class="vocab-item-cn">${escapeHtml(w.chinese)}</div>
-                </div>
-                <div class="vocab-item-stats">${statsText}</div>
-            </div>`;
-        }).join('');
+    container.innerHTML = `
+        <div class="vocab-count">共 ${vocabAllWords.length} 个单词</div>
+        <div id="vocab-items"></div>
+        <div id="vocab-loader" class="scroll-loader">加载更多...</div>
+    `;
+    vocabLoadMore();
+    setupVocabScroll();
 }
 
 /* ==========================================================================
@@ -2199,49 +2335,87 @@ function fireConfetti() {
    HISTORY PAGE
    ========================================================================== */
 
-function renderHistory() {
-    const sessions = SessionStore.getAll().slice().reverse();
+/* ---------- History Page (infinite scroll) ---------- */
 
-    let listHtml;
-    if (sessions.length === 0) {
-        listHtml = `
+const HISTORY_PAGE_SIZE = 30;
+let historyAllSessions = [];
+let historyRenderedCount = 0;
+let historyScrollObserver = null;
+
+function renderHistoryItemHtml(s) {
+    const statusLabels = { completed: '已完成', in_progress: '进行中', missed: '已错过' };
+    const statusLabel = statusLabels[s.status] || s.status;
+
+    let detailHtml = '';
+    if (s.status === 'completed' && s.rounds && s.rounds.length > 0) {
+        const totalCorrect = s.rounds.reduce((sum, r) => sum + r.correctCount, 0);
+        const totalWrong = s.rounds.reduce((sum, r) => sum + r.wrongCount, 0);
+        detailHtml = `
+            <div>单词数：${(s.words || []).length} 个</div>
+            <div>学习轮次：${s.totalRounds || s.rounds.length} 轮</div>
+            <div>总计：正确 ${totalCorrect} 次，错误 ${totalWrong} 次</div>
+            ${s.rounds.map(r => `<div style="margin-top:4px;padding-left:8px;border-left:3px solid var(--primary-light)">
+                第 ${r.roundNumber} 轮：✓ ${r.correctCount} / ✗ ${r.wrongCount}
+            </div>`).join('')}
+        `;
+    } else if (s.status === 'missed') {
+        detailHtml = '<div>该日未完成学习</div>';
+    } else if (s.status === 'in_progress') {
+        detailHtml = '<div>学习尚未完成</div>';
+    }
+
+    return `
+    <div class="history-item" onclick="this.classList.toggle('expanded')">
+        <div class="history-item-header">
+            <span class="history-date">${formatDate(s.date)}</span>
+            <span class="history-badge ${s.status}">${statusLabel}</span>
+        </div>
+        <div class="history-detail">${detailHtml}</div>
+    </div>`;
+}
+
+function historyLoadMore() {
+    const itemsEl = document.getElementById('history-items');
+    const loaderEl = document.getElementById('history-loader');
+    if (!itemsEl || historyRenderedCount >= historyAllSessions.length) {
+        if (loaderEl) loaderEl.classList.add('hidden');
+        return;
+    }
+    const batch = historyAllSessions.slice(historyRenderedCount, historyRenderedCount + HISTORY_PAGE_SIZE);
+    itemsEl.insertAdjacentHTML('beforeend', batch.map(renderHistoryItemHtml).join(''));
+    historyRenderedCount += batch.length;
+    if (historyRenderedCount >= historyAllSessions.length && loaderEl) {
+        loaderEl.classList.add('hidden');
+    }
+}
+
+function setupHistoryScroll() {
+    if (historyScrollObserver) historyScrollObserver.disconnect();
+    const loaderEl = document.getElementById('history-loader');
+    if (!loaderEl) return;
+    historyScrollObserver = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) historyLoadMore();
+    }, { rootMargin: '200px' });
+    historyScrollObserver.observe(loaderEl);
+}
+
+function renderHistory() {
+    historyAllSessions = SessionStore.getAll().slice().reverse();
+    historyRenderedCount = 0;
+
+    let contentHtml;
+    if (historyAllSessions.length === 0) {
+        contentHtml = `
             <div class="history-empty">
                 <div class="empty-icon">📅</div>
                 <p>还没有学习记录</p>
                 <p>开始你的第一次学习吧</p>
             </div>`;
     } else {
-        listHtml = sessions.map(s => {
-            const statusLabels = { completed: '已完成', in_progress: '进行中', missed: '已错过' };
-            const statusLabel = statusLabels[s.status] || s.status;
-
-            let detailHtml = '';
-            if (s.status === 'completed' && s.rounds && s.rounds.length > 0) {
-                const totalCorrect = s.rounds.reduce((sum, r) => sum + r.correctCount, 0);
-                const totalWrong = s.rounds.reduce((sum, r) => sum + r.wrongCount, 0);
-                detailHtml = `
-                    <div>单词数：${(s.words || []).length} 个</div>
-                    <div>学习轮次：${s.totalRounds || s.rounds.length} 轮</div>
-                    <div>总计：正确 ${totalCorrect} 次，错误 ${totalWrong} 次</div>
-                    ${s.rounds.map(r => `<div style="margin-top:4px;padding-left:8px;border-left:3px solid var(--primary-light)">
-                        第 ${r.roundNumber} 轮：✓ ${r.correctCount} / ✗ ${r.wrongCount}
-                    </div>`).join('')}
-                `;
-            } else if (s.status === 'missed') {
-                detailHtml = '<div>该日未完成学习</div>';
-            } else if (s.status === 'in_progress') {
-                detailHtml = '<div>学习尚未完成</div>';
-            }
-
-            return `
-            <div class="history-item" onclick="this.classList.toggle('expanded')">
-                <div class="history-item-header">
-                    <span class="history-date">${formatDate(s.date)}</span>
-                    <span class="history-badge ${s.status}">${statusLabel}</span>
-                </div>
-                <div class="history-detail">${detailHtml}</div>
-            </div>`;
-        }).join('');
+        contentHtml = `
+            <div id="history-items"></div>
+            <div id="history-loader" class="scroll-loader">加载更多...</div>
+        `;
     }
 
     document.getElementById('page-history').innerHTML = `
@@ -2250,8 +2424,13 @@ function renderHistory() {
             <h1>学习记录</h1>
             <div class="header-btn invisible"></div>
         </div>
-        <div class="history-list" style="padding-top:16px">${listHtml}</div>
+        <div class="history-list" style="padding-top:16px">${contentHtml}</div>
     `;
+
+    if (historyAllSessions.length > 0) {
+        historyLoadMore();
+        setupHistoryScroll();
+    }
 }
 
 /* ==========================================================================
@@ -2280,6 +2459,58 @@ function checkAndMarkMissedSessions() {
         }
     }
 }
+
+/* ==========================================================================
+   BACKUP / RESTORE
+   ========================================================================== */
+
+async function exportBackup() {
+    try {
+        const data = await Storage.exportAll();
+        const json = JSON.stringify(data, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const date = new Date().toISOString().slice(0, 10);
+        a.download = `remember-words-backup-${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        showToast('备份文件已下载', 'success');
+    } catch (e) {
+        showToast('导出失败：' + e.message, 'error');
+    }
+}
+
+function importBackup(file) {
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            const validKeys = Object.values(KEYS);
+            const keysFound = Object.keys(data).filter(k => validKeys.includes(k));
+            if (keysFound.length === 0) {
+                showToast('无效的备份文件', 'error');
+                return;
+            }
+            await Storage.importAll(data);
+            WordStore._cache = null;
+            showToast(`恢复成功，已导入 ${keysFound.length} 项数据`, 'success');
+            onRoute();
+        } catch (err) {
+            showToast('导入失败：文件格式错误', 'error');
+        }
+    };
+    reader.readAsText(file);
+}
+
+document.getElementById('backup-file-input').addEventListener('change', function() {
+    if (this.files.length > 0) {
+        importBackup(this.files[0]);
+        this.value = '';
+    }
+});
 
 /* ==========================================================================
    INITIALIZATION
@@ -2324,7 +2555,8 @@ function autoImportFromUrl() {
         .catch(() => showToast('自动导入失败', 'error'));
 }
 
-function init() {
+async function init() {
+    await Storage.init();
     checkAndMarkMissedSessions();
     window.addEventListener('hashchange', onRoute);
     autoImportFromUrl();
