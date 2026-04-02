@@ -268,6 +268,47 @@ body {
     border-radius: var(--radius-sm);
 }
 
+.backup-reminder {
+    margin: 16px 16px 0;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--warning);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    animation: slideUp 0.4s ease;
+}
+
+.backup-reminder .reminder-icon { font-size: 24px; flex-shrink: 0; }
+
+.backup-reminder .reminder-text {
+    flex: 1;
+    font-size: 13px;
+    color: #5D4037;
+    line-height: 1.5;
+}
+
+.backup-reminder .reminder-text strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+    color: #E65100;
+}
+
+.backup-reminder .reminder-action {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    background: var(--warning);
+    color: white;
+    border: none;
+    border-radius: 50px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 /* ========== Vocab Page ========== */
 .vocab-toolbar {
     display: flex;
@@ -651,11 +692,33 @@ body {
 
 .test-question-card.correct-flash {
     box-shadow: 0 0 0 3px var(--success), var(--card-shadow);
+    animation: correctPulse 0.5s ease;
 }
 
 .test-question-card.wrong-flash {
     box-shadow: 0 0 0 3px var(--error), var(--card-shadow);
     animation: shake 0.4s ease;
+}
+
+.answer-emoji-burst {
+    position: fixed;
+    pointer-events: none;
+    font-size: 32px;
+    z-index: 999;
+    animation: emojiFly 0.9s ease-out forwards;
+}
+
+@keyframes emojiFly {
+    0% { opacity: 1; transform: translate(0, 0) scale(0.5) rotate(0deg); }
+    50% { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1.2) rotate(var(--rot)); }
+    100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) - 40px)) scale(0.6) rotate(var(--rot)); }
+}
+
+@keyframes correctPulse {
+    0% { transform: scale(1); }
+    30% { transform: scale(1.03); }
+    60% { transform: scale(0.98); }
+    100% { transform: scale(1); }
 }
 
 .test-prompt {
@@ -1051,6 +1114,7 @@ const KEYS = {
     PLAN: 'rtsw_plan',
     SESSIONS: 'rtsw_sessions',
     CURRENT: 'rtsw_current',
+    LAST_BACKUP: 'rtsw_last_backup',
 };
 
 const Storage = {
@@ -1362,6 +1426,79 @@ const SpacedRepetition = {
 };
 
 /* ==========================================================================
+   ANSWER SOUND EFFECTS & ANIMATIONS
+   ========================================================================== */
+
+const SFX = {
+    _ctx: null,
+    _getCtx() {
+        if (!this._ctx) this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        return this._ctx;
+    },
+    play(type) {
+        try {
+            const ctx = this._getCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'correct') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523, ctx.currentTime);
+                osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
+                osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.18, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.35);
+            } else {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(200, ctx.currentTime);
+                osc.frequency.setValueAtTime(150, ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.12, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.3);
+            }
+        } catch { /* audio not available */ }
+    }
+};
+
+function emojiBurst(correct) {
+    const emojis = correct
+        ? ['⭐', '🌟', '✨', '💫', '🎉', '👏']
+        : ['💪', '🔄', '📝'];
+    const count = correct ? 6 : 3;
+    const card = document.getElementById('test-card');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    for (let i = 0; i < count; i++) {
+        const el = document.createElement('div');
+        el.className = 'answer-emoji-burst';
+        el.textContent = emojis[i % emojis.length];
+        const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+        const dist = 60 + Math.random() * 50;
+        el.style.left = cx + 'px';
+        el.style.top = cy + 'px';
+        el.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+        el.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+        el.style.setProperty('--rot', (Math.random() * 60 - 30) + 'deg');
+        el.style.animationDelay = (i * 0.06) + 's';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1200);
+    }
+}
+
+function answerEffect(correct) {
+    SFX.play(correct ? 'correct' : 'wrong');
+    emojiBurst(correct);
+}
+
+/* ==========================================================================
    TEXT-TO-SPEECH
    ========================================================================== */
 
@@ -1479,6 +1616,35 @@ document.getElementById('csv-file-input').addEventListener('change', function() 
    HOME PAGE
    ========================================================================== */
 
+function getBackupReminderHtml() {
+    if (WordStore.count() === 0) return '';
+    const lastBackup = Storage.get(KEYS.LAST_BACKUP, null);
+    if (!lastBackup) {
+        return `
+        <div class="backup-reminder" id="backup-reminder" onclick="exportBackup()">
+            <div class="reminder-icon">🔔</div>
+            <div class="reminder-text">
+                <strong>还没有备份过数据</strong>
+                建议定期备份，防止数据丢失
+            </div>
+            <button class="reminder-action">立即备份</button>
+        </div>`;
+    }
+    const daysSince = Math.floor((Date.now() - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSince >= 3) {
+        return `
+        <div class="backup-reminder" id="backup-reminder" onclick="exportBackup()">
+            <div class="reminder-icon">🔔</div>
+            <div class="reminder-text">
+                <strong>已有 ${daysSince} 天未备份</strong>
+                点击立即备份，保护学习数据
+            </div>
+            <button class="reminder-action">立即备份</button>
+        </div>`;
+    }
+    return '';
+}
+
 function renderHome() {
     const wordCount = WordStore.count();
     const plan = PlanStore.get();
@@ -1506,6 +1672,7 @@ function renderHome() {
             <h2>每天进步一点点</h2>
             <p>坚持背单词，你是最棒的！</p>
         </div>
+        ${getBackupReminderHtml()}
         <div class="home-grid">
             <div class="home-card" onclick="navigate('vocab')">
                 <div class="home-card-icon">📚</div>
@@ -2140,6 +2307,7 @@ function selectOption(index) {
     learnState.lastCorrect = correct;
     learnState.results.push({ word: q.word, type: q.type, correct, userAnswer: selected });
 
+    answerEffect(correct);
     renderLearnPhase();
 }
 
@@ -2158,6 +2326,7 @@ function submitTyping() {
     learnState.typedAnswer = userAnswer;
     learnState.results.push({ word: q.word, type: q.type, correct, userAnswer });
 
+    answerEffect(correct);
     renderLearnPhase();
 }
 
@@ -2477,6 +2646,9 @@ async function exportBackup() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
+        Storage.set(KEYS.LAST_BACKUP, new Date().toISOString());
+        const reminderEl = document.getElementById('backup-reminder');
+        if (reminderEl) reminderEl.remove();
         showToast('备份文件已下载', 'success');
     } catch (e) {
         showToast('导出失败：' + e.message, 'error');
