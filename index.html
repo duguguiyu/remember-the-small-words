@@ -1101,6 +1101,14 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function getWordExample(word) {
+    if (word.exampleEn) return { en: word.exampleEn, cn: word.exampleCn || '' };
+    if (!word.explanation) return null;
+    const m = word.explanation.match(/\*\*例句\*\*[:：]\s*(.+)/);
+    if (!m) return null;
+    return { en: m[1].trim(), cn: '' };
+}
+
 /* ==========================================================================
    STORAGE LAYER  (IndexedDB with in-memory cache)
    ========================================================================== */
@@ -1249,7 +1257,7 @@ const WordStore = {
         Storage.set(KEYS.WORDS, words);
     },
 
-    upsert(english, chinese, phonetic, explanation) {
+    upsert(english, chinese, phonetic, explanation, exampleEn, exampleCn) {
         const words = this.getAll();
         const existing = words[english];
         words[english] = {
@@ -1257,6 +1265,8 @@ const WordStore = {
             chinese,
             phonetic,
             explanation,
+            exampleEn: exampleEn || (existing ? existing.exampleEn : '') || '',
+            exampleCn: exampleCn || (existing ? existing.exampleCn : '') || '',
             stats: existing ? existing.stats : {
                 reviewCount: 0,
                 correctCount: 0,
@@ -1327,6 +1337,7 @@ const PlanStore = {
             cycleDays: plan.cycleDays || 1,
             englishToChineseCount: plan.englishToChineseCount || 10,
             chineseToEnglishCount: plan.chineseToEnglishCount || 10,
+            fillBlankCount: plan.fillBlankCount || 0,
             lastGeneratedDate: plan.lastGeneratedDate || null,
             updatedAt: Date.now(),
         });
@@ -1402,19 +1413,30 @@ const SpacedRepetition = {
         const today = getToday();
         const todayMs = new Date(today + 'T00:00:00').getTime();
 
+        const reviewCounts = wordList.map(w => w.stats.reviewCount).filter(c => c > 0);
+        const avgReviewCount = reviewCounts.length > 0
+            ? reviewCounts.reduce((a, b) => a + b, 0) / reviewCounts.length
+            : 0;
+
         const scored = wordList.map(w => {
             const s = w.stats;
             let score;
 
+            const overReviewPenalty = avgReviewCount > 0
+                ? Math.max(0, (s.reviewCount - avgReviewCount) / avgReviewCount) * 40
+                : 0;
+            const reviewedToday = s.lastReviewTime && s.lastReviewTime.startsWith(today);
+            const todayPenalty = reviewedToday ? 200 : 0;
+
             if (s.reviewCount === 0) {
-                score = -1000 + Math.random() * 10;
+                score = -1000 + Math.random() * 100;
             } else if (s.nextReviewTime && new Date(s.nextReviewTime + 'T00:00:00').getTime() <= todayMs) {
                 const overdueDays = daysBetween(s.nextReviewTime, today);
-                score = -500 + Math.max(0, 100 - overdueDays) + Math.random() * 5;
+                score = -500 + Math.max(0, 100 - overdueDays) + overReviewPenalty + todayPenalty + Math.random() * 30;
             } else {
                 const accuracy = s.correctCount / Math.max(1, s.reviewCount);
                 const daysUntil = s.nextReviewTime ? daysBetween(today, s.nextReviewTime) : 0;
-                score = daysUntil * 10 + accuracy * 50 + Math.random() * 5;
+                score = daysUntil * 10 + accuracy * 50 + overReviewPenalty + todayPenalty + Math.random() * 30;
             }
 
             return { word: w.english, score };
@@ -1512,6 +1534,12 @@ function speak(text) {
     window.speechSynthesis.speak(u);
 }
 
+function speakCurrentSentence() {
+    if (!learnState) return;
+    const q = learnState.questions[learnState.questionIndex];
+    if (q && q.fullSentence) speak(q.fullSentence);
+}
+
 /* ==========================================================================
    TOAST
    ========================================================================== */
@@ -1571,12 +1599,43 @@ function triggerImport() {
     document.getElementById('csv-file-input').click();
 }
 
+function detectCSVFormat(rows) {
+    const headerWords = ['英文', 'english', 'word', '单词'];
+    for (const row of rows) {
+        if (row.length < 2) continue;
+        const first = (row[0] || '').trim().toLowerCase();
+        if (!first || headerWords.includes(first)) continue;
+        return row.length >= 6 ? 'v2' : 'v1';
+    }
+    return 'v1';
+}
+
+function parseCSVRow(row, format) {
+    if (format === 'v2') {
+        return {
+            chinese: (row[1] || '').trim(),
+            phonetic: (row[2] || '').trim(),
+            exampleEn: (row[3] || '').trim(),
+            exampleCn: (row[4] || '').trim(),
+            explanation: row.slice(5).join(',').trim(),
+        };
+    }
+    return {
+        chinese: (row[1] || '').trim(),
+        phonetic: (row[2] || '').trim(),
+        exampleEn: '',
+        exampleCn: '',
+        explanation: row.slice(3).join(',').trim(),
+    };
+}
+
 function handleCSVImport(file) {
     Papa.parse(file, {
         header: false,
         skipEmptyLines: true,
         complete(results) {
             let added = 0, updated = 0, skipped = 0;
+            const format = detectCSVFormat(results.data);
 
             for (const row of results.data) {
                 if (row.length < 2) { skipped++; continue; }
@@ -1587,12 +1646,9 @@ function handleCSVImport(file) {
                 const lower = english.toLowerCase();
                 if (['英文', 'english', 'word', '单词'].includes(lower)) continue;
 
-                const chinese = (row[1] || '').trim();
-                const phonetic = (row[2] || '').trim();
-                const explanation = row.slice(3).join(',').trim();
-
+                const fields = parseCSVRow(row, format);
                 const isNew = !WordStore.get(english);
-                WordStore.upsert(english, chinese, phonetic, explanation);
+                WordStore.upsert(english, fields.chinese, fields.phonetic, fields.explanation, fields.exampleEn, fields.exampleCn);
                 if (isNew) added++; else updated++;
             }
 
@@ -1849,6 +1905,11 @@ function renderWord(english) {
                 <div class="word-phonetic">${escapeHtml(word.phonetic || '')}</div>
                 <button class="btn-speak" onclick="speak('${escapeHtml(word.english)}')">🔊 发音</button>
                 <div class="word-cn">${escapeHtml(word.chinese)}</div>
+                ${word.exampleEn ? `
+                <div class="word-example" style="margin-top:12px;padding:10px 14px;background:var(--bg-main);border-radius:10px;font-size:0.95em;line-height:1.6">
+                    <div style="color:var(--text-primary)">📖 ${escapeHtml(word.exampleEn)}</div>
+                    ${word.exampleCn ? `<div style="color:var(--text-secondary);margin-top:4px">${escapeHtml(word.exampleCn)}</div>` : ''}
+                </div>` : ''}
                 <div class="word-explanation">${explanationHtml}</div>
                 <div class="word-stats-bar">
                     <span>📖 学习 ${s.reviewCount} 次</span>
@@ -1888,6 +1949,7 @@ function renderPlan() {
         cycleDays: 1,
         englishToChineseCount: 10,
         chineseToEnglishCount: 10,
+        fillBlankCount: 5,
     };
 
     document.getElementById('page-plan').innerHTML = `
@@ -1915,6 +1977,12 @@ function renderPlan() {
                 <input class="form-input" type="number" id="plan-cn2en" min="1" max="50"
                     value="${plan.chineseToEnglishCount}">
             </div>
+            <div class="form-group">
+                <label class="form-label">例句填空（题数）</label>
+                <div class="form-hint">从例句中挖空目标单词，听句子填写（需词库含例句）</div>
+                <input class="form-input" type="number" id="plan-fillblank" min="0" max="50"
+                    value="${plan.fillBlankCount || 0}">
+            </div>
             <div style="padding: 8px 0;">
                 <button class="btn btn-primary btn-block btn-large" onclick="savePlan()">
                     保存计划
@@ -1928,12 +1996,14 @@ function savePlan() {
     const cycleDays = parseInt(document.getElementById('plan-cycle').value) || 1;
     const en2cn = parseInt(document.getElementById('plan-en2cn').value) || 10;
     const cn2en = parseInt(document.getElementById('plan-cn2en').value) || 10;
+    const fillBlank = parseInt(document.getElementById('plan-fillblank').value) || 0;
 
     const existing = PlanStore.get();
     PlanStore.save({
         cycleDays: Math.max(1, Math.min(30, cycleDays)),
         englishToChineseCount: Math.max(1, Math.min(50, en2cn)),
         chineseToEnglishCount: Math.max(1, Math.min(50, cn2en)),
+        fillBlankCount: Math.max(0, Math.min(50, fillBlank)),
         lastGeneratedDate: existing ? existing.lastGeneratedDate : null,
     });
 
@@ -1984,7 +2054,7 @@ function renderLearn() {
     }
 
     const todaySession = SessionStore.getToday();
-    if (todaySession && todaySession.status === 'completed') {
+    if (!learnState && todaySession && todaySession.status === 'completed') {
         container.innerHTML = headerHtml + `
             <div class="learn-container">
                 <div class="info-box">
@@ -1992,6 +2062,7 @@ function renderLearn() {
                     <p style="font-size:18px;font-weight:700;color:var(--success)">今日学习已完成！</p>
                     <p>学习了 ${todaySession.words.length} 个单词</p>
                     <p>用了 ${todaySession.totalRounds} 轮完成</p>
+                    <button class="btn btn-primary mt-16" onclick="restartLearning()">换一批继续学</button>
                     <button class="btn btn-secondary mt-16" onclick="navigate('home')">返回首页</button>
                 </div>
             </div>`;
@@ -2023,7 +2094,8 @@ function renderLearn() {
 function initLearnSession(plan) {
     const en2cnCount = plan.englishToChineseCount;
     const cn2enCount = plan.chineseToEnglishCount;
-    const totalNeeded = Math.max(en2cnCount, cn2enCount);
+    const fillBlankCount = plan.fillBlankCount || 0;
+    const totalNeeded = Math.max(en2cnCount, cn2enCount, fillBlankCount);
     const selectedWords = SpacedRepetition.selectWords(totalNeeded);
 
     if (selectedWords.length === 0) {
@@ -2033,7 +2105,15 @@ function initLearnSession(plan) {
 
     const en2cnWords = selectedWords.slice(0, Math.min(en2cnCount, selectedWords.length));
     const cn2enWords = selectedWords.slice(0, Math.min(cn2enCount, selectedWords.length));
-    const allWords = [...new Set([...en2cnWords, ...cn2enWords])];
+
+    const allWordsData = WordStore.getAll();
+    const wordsWithExample = selectedWords.filter(eng => {
+        const w = allWordsData[eng];
+        return w && getWordExample(w);
+    });
+    const fillBlankWords = wordsWithExample.slice(0, Math.min(fillBlankCount, wordsWithExample.length));
+
+    const allWords = [...new Set([...en2cnWords, ...cn2enWords, ...fillBlankWords])];
 
     learnState = {
         date: getToday(),
@@ -2041,6 +2121,7 @@ function initLearnSession(plan) {
         allWords,
         en2cnWords,
         cn2enWords,
+        fillBlankWords,
         previewIndex: 0,
         questions: [],
         questionIndex: 0,
@@ -2096,6 +2177,15 @@ function renderPreview(el) {
     const explanationHtml = word.explanation ? marked.parse(word.explanation) : '';
     const roundLabel = learnState.roundNumber > 1 ? `（第 ${learnState.roundNumber} 轮 · 错题复习）` : '';
 
+    let exampleHtml = '';
+    if (word.exampleEn) {
+        exampleHtml = `
+            <div class="word-example" style="margin-top:12px;padding:10px 14px;background:var(--bg-main);border-radius:10px;font-size:0.95em;line-height:1.6">
+                <div style="color:var(--text-primary)">📖 ${escapeHtml(word.exampleEn)}</div>
+                ${word.exampleCn ? `<div style="color:var(--text-secondary);margin-top:4px">${escapeHtml(word.exampleCn)}</div>` : ''}
+            </div>`;
+    }
+
     el.innerHTML = `
         <div class="learn-progress-text">预习 ${idx + 1} / ${words.length} ${roundLabel}</div>
         <div class="learn-progress-bar"><div class="fill" style="width:${progress}%"></div></div>
@@ -2104,6 +2194,7 @@ function renderPreview(el) {
             <div class="word-phonetic">${escapeHtml(word.phonetic || '')}</div>
             <button class="btn-speak" onclick="speak('${escapeHtml(word.english)}')">🔊 发音</button>
             <div class="word-cn">${escapeHtml(word.chinese)}</div>
+            ${exampleHtml}
             ${explanationHtml ? `<div class="word-explanation">${explanationHtml}</div>` : ''}
         </div>
     `;
@@ -2145,6 +2236,8 @@ function previewNext() {
 
 function renderConfirm(el) {
     const roundLabel = learnState.roundNumber > 1 ? `（第 ${learnState.roundNumber} 轮）` : '';
+    const fillBlankLine = learnState.fillBlankWords.length > 0
+        ? `例句填空：<strong>${learnState.fillBlankWords.length}</strong> 题<br>` : '';
     el.innerHTML = `
         <div class="learn-phase-icon">📝</div>
         <div class="learn-phase-title">准备好了吗？${roundLabel}</div>
@@ -2152,7 +2245,8 @@ function renderConfirm(el) {
             你刚刚预习了 <strong>${learnState.allWords.length}</strong> 个单词<br>
             接下来进行测试：<br>
             看英文选中文：<strong>${learnState.en2cnWords.length}</strong> 题<br>
-            看中文写英文：<strong>${learnState.cn2enWords.length}</strong> 题
+            看中文写英文：<strong>${learnState.cn2enWords.length}</strong> 题<br>
+            ${fillBlankLine}
         </div>
         <div class="text-center">
             <button class="btn btn-primary btn-large" onclick="startTest()">开始测试！</button>
@@ -2202,6 +2296,24 @@ function startTest() {
         });
     }
 
+    for (const eng of shuffle(learnState.fillBlankWords)) {
+        const word = allWords[eng];
+        if (!word) continue;
+        const example = getWordExample(word);
+        if (!example) continue;
+        const regex = new RegExp(eng.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        if (!regex.test(example.en)) continue;
+        const blankedSentence = example.en.replace(regex, '______');
+        questions.push({
+            type: 'fillBlank',
+            word: eng,
+            prompt: blankedSentence,
+            answer: word.english,
+            sentenceCn: example.cn,
+            fullSentence: example.en,
+        });
+    }
+
     learnState.questions = questions;
     learnState.questionIndex = 0;
     learnState.results = [];
@@ -2242,14 +2354,16 @@ function renderTest(el) {
                 <button class="btn-speak" onclick="speak('${escapeHtml(q.prompt)}')" style="margin-top:10px">🔊</button>
             </div>
             <div class="test-options">${optionsHtml}</div>`;
-    } else {
+    } else if (q.type === 'cn2en') {
         let inputClass = 'test-input';
         let inputValue = learnState.typedAnswer || '';
         let feedbackHtml = '';
 
         if (learnState.showFeedback) {
             inputClass += learnState.lastCorrect ? ' correct' : ' wrong';
-            if (learnState.lastCorrect) {
+            if (learnState.lastCorrect && learnState.fuzzyMatch) {
+                feedbackHtml = `<div class="test-feedback correct">回答正确 ✓ <span style="opacity:0.75;font-size:0.9em">（注意正确写法：<strong>${escapeHtml(q.answer)}</strong>）</span></div>`;
+            } else if (learnState.lastCorrect) {
                 feedbackHtml = `<div class="test-feedback correct">太棒了！回答正确 ✓</div>`;
             } else {
                 feedbackHtml = `<div class="test-feedback wrong">正确答案是：<strong>${escapeHtml(q.answer)}</strong></div>`;
@@ -2266,6 +2380,44 @@ function renderTest(el) {
             <div class="test-input-group">
                 <input class="${inputClass}" type="text" id="answer-input"
                     placeholder="输入英文单词" value="${escapeHtml(inputValue)}"
+                    onkeydown="if(event.key==='Enter')submitTyping()"
+                    ${learnState.showFeedback ? 'disabled' : ''} autocomplete="off" autocapitalize="off">
+                ${!learnState.showFeedback ? `<button class="btn btn-primary" onclick="submitTyping()">提交</button>` : ''}
+            </div>
+            ${feedbackHtml}`;
+    } else if (q.type === 'fillBlank') {
+        let inputClass = 'test-input';
+        let inputValue = learnState.typedAnswer || '';
+        let feedbackHtml = '';
+
+        if (learnState.showFeedback) {
+            inputClass += learnState.lastCorrect ? ' correct' : ' wrong';
+            if (learnState.lastCorrect && learnState.fuzzyMatch) {
+                feedbackHtml = `<div class="test-feedback correct">回答正确 ✓ <span style="opacity:0.75;font-size:0.9em">（注意正确写法：<strong>${escapeHtml(q.answer)}</strong>）</span></div>`;
+            } else if (learnState.lastCorrect) {
+                feedbackHtml = `<div class="test-feedback correct">太棒了！回答正确 ✓</div>`;
+            } else {
+                feedbackHtml = `<div class="test-feedback wrong">正确答案是：<strong>${escapeHtml(q.answer)}</strong></div>`;
+            }
+            if (learnState.showFeedback) {
+                feedbackHtml += `<div class="test-feedback-sentence" style="margin-top:8px;padding:10px 14px;background:var(--bg-card);border-radius:10px;font-size:0.95em;line-height:1.5">
+                    <div style="color:var(--text-primary)">📖 ${escapeHtml(q.fullSentence)}</div>
+                </div>`;
+            }
+        }
+
+        questionHtml = `
+            <div class="text-center mb-16">
+                <span class="test-type-badge fillblank" style="background:linear-gradient(135deg,#a78bfa,#7c3aed);color:#fff">例句填空</span>
+            </div>
+            <div class="test-question-card ${learnState.showFeedback ? (learnState.lastCorrect ? 'correct-flash' : 'wrong-flash') : ''}" id="test-card">
+                <div class="test-prompt" style="font-size:1.1em;line-height:1.6">${escapeHtml(q.prompt)}</div>
+                <button class="btn-speak" onclick="speakCurrentSentence()" style="margin-top:10px">🔊 听句子</button>
+                ${q.sentenceCn ? `<div class="test-prompt-sub" style="margin-top:10px;font-size:0.95em;color:var(--text-secondary)">${escapeHtml(q.sentenceCn)}</div>` : ''}
+            </div>
+            <div class="test-input-group">
+                <input class="${inputClass}" type="text" id="answer-input"
+                    placeholder="填写缺失的单词" value="${escapeHtml(inputValue)}"
                     onkeydown="if(event.key==='Enter')submitTyping()"
                     ${learnState.showFeedback ? 'disabled' : ''} autocomplete="off" autocapitalize="off">
                 ${!learnState.showFeedback ? `<button class="btn btn-primary" onclick="submitTyping()">提交</button>` : ''}
@@ -2288,7 +2440,7 @@ function renderTest(el) {
         speak(q.prompt);
     }
 
-    if (q.type === 'cn2en' && !learnState.showFeedback) {
+    if ((q.type === 'cn2en' || q.type === 'fillBlank') && !learnState.showFeedback) {
         setTimeout(() => {
             const input = document.getElementById('answer-input');
             if (input) input.focus();
@@ -2311,6 +2463,10 @@ function selectOption(index) {
     renderLearnPhase();
 }
 
+function normalizeForComparison(str) {
+    return str.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 function submitTyping() {
     if (!learnState || learnState.showFeedback) return;
     const input = document.getElementById('answer-input');
@@ -2319,10 +2475,13 @@ function submitTyping() {
     if (!userAnswer) { showToast('请输入答案', 'warning'); return; }
 
     const q = learnState.questions[learnState.questionIndex];
-    const correct = userAnswer.toLowerCase() === q.answer.toLowerCase();
+    const exactMatch = userAnswer.toLowerCase() === q.answer.toLowerCase();
+    const fuzzyMatch = !exactMatch && normalizeForComparison(userAnswer) === normalizeForComparison(q.answer);
+    const correct = exactMatch || fuzzyMatch;
 
     learnState.showFeedback = true;
     learnState.lastCorrect = correct;
+    learnState.fuzzyMatch = fuzzyMatch;
     learnState.typedAnswer = userAnswer;
     learnState.results.push({ word: q.word, type: q.type, correct, userAnswer });
 
@@ -2335,6 +2494,7 @@ function nextQuestion() {
     learnState.showFeedback = false;
     learnState.selectedOption = null;
     learnState.lastCorrect = null;
+    learnState.fuzzyMatch = false;
     learnState.typedAnswer = '';
     learnState.questionIndex++;
 
@@ -2431,11 +2591,16 @@ function renderReview(el) {
 function startErrorCorrection() {
     if (!learnState) return;
     const wrongWords = learnState.wrongWords;
+    const allWordsData = WordStore.getAll();
 
     learnState.roundNumber++;
     learnState.allWords = wrongWords;
     learnState.en2cnWords = wrongWords;
     learnState.cn2enWords = wrongWords;
+    learnState.fillBlankWords = wrongWords.filter(eng => {
+        const w = allWordsData[eng];
+        return w && getWordExample(w);
+    });
     learnState.previewIndex = 0;
     learnState.phase = 'preview';
 
@@ -2454,28 +2619,52 @@ function renderComplete(el) {
             用了 <strong>${learnState.roundNumber}</strong> 轮完成
         </div>
         <div class="text-center mt-24">
-            <button class="btn btn-primary btn-large" onclick="completeLearning()">返回首页</button>
+            <button class="btn btn-primary btn-large" onclick="completeLearningAndRestart()">换一批继续学</button>
+            <button class="btn btn-secondary btn-large" onclick="completeLearning()" style="margin-top:10px">返回首页</button>
         </div>
     `;
     fireConfetti();
 }
 
 function completeLearning() {
-    if (learnState) {
-        const session = SessionStore.getToday() || {};
-        session.date = getToday();
-        session.status = 'completed';
-        session.rounds = learnState.rounds;
-        session.totalRounds = learnState.roundNumber;
-        session.words = learnState.rounds.length > 0
-            ? [...new Set(learnState.rounds[0].results.map(r => r.word))]
-            : learnState.allWords;
-        session.planSnapshot = PlanStore.get();
-        SessionStore.createOrUpdate(session);
-    }
-
+    saveLearningSession();
     learnState = null;
     navigate('home');
+}
+
+function completeLearningAndRestart() {
+    saveLearningSession();
+    restartLearning();
+}
+
+function restartLearning() {
+    const plan = PlanStore.get();
+    if (!plan) { navigate('home'); return; }
+    learnState = null;
+    initLearnSession(plan);
+    if (!learnState) {
+        showToast('没有更多需要学习的单词了', 'info');
+        navigate('home');
+        return;
+    }
+    renderLearn();
+}
+
+function saveLearningSession() {
+    if (!learnState) return;
+    const session = SessionStore.getToday() || {};
+    session.date = getToday();
+    session.status = 'completed';
+    const prevWords = session.words || [];
+    const curWords = learnState.rounds.length > 0
+        ? [...new Set(learnState.rounds[0].results.map(r => r.word))]
+        : learnState.allWords;
+    session.words = [...new Set([...prevWords, ...curWords])];
+    const prevRounds = session.rounds || [];
+    session.rounds = [...prevRounds, ...learnState.rounds];
+    session.totalRounds = (session.totalRounds || 0) + learnState.roundNumber;
+    session.planSnapshot = PlanStore.get();
+    SessionStore.createOrUpdate(session);
 }
 
 function exitLearn() {
@@ -2707,15 +2896,14 @@ function autoImportFromUrl() {
                 skipEmptyLines: true,
                 complete(results) {
                     let added = 0, updated = 0;
+                    const format = detectCSVFormat(results.data);
                     for (const row of results.data) {
                         if (row.length < 2) continue;
                         const english = (row[0] || '').trim();
                         if (!english || ['英文','english'].includes(english.toLowerCase())) continue;
-                        const chinese = (row[1] || '').trim();
-                        const phonetic = (row[2] || '').trim();
-                        const explanation = row.slice(3).join(',').trim();
+                        const fields = parseCSVRow(row, format);
                         const isNew = !WordStore.get(english);
-                        WordStore.upsert(english, chinese, phonetic, explanation);
+                        WordStore.upsert(english, fields.chinese, fields.phonetic, fields.explanation, fields.exampleEn, fields.exampleCn);
                         if (isNew) added++; else updated++;
                     }
                     showToast(`自动导入：${added} 个新词，${updated} 个更新`, 'success');
