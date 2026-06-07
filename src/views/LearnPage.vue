@@ -109,6 +109,7 @@ onMounted(async () => {
   phase.value = 'preview'
   previewIndex.value = 0
   countdownDone.value = false
+  speakWord(allWords.value[0].english)
   saveProgress()
 })
 

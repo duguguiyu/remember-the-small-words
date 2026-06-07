@@ -44,6 +44,7 @@ function goBack() {
             <span v-if="word.phonetic" class="word-phonetic">{{ word.phonetic }}</span>
           </div>
           <div class="word-cn">{{ word.chinese }}</div>
+          <div v-if="word.explanation" class="word-explanation">{{ word.explanation }}</div>
           <div v-if="word.exampleEn" class="word-example">
             <div class="example-en">{{ word.exampleEn }}</div>
             <div v-if="word.exampleCn" class="example-cn">{{ word.exampleCn }}</div>
@@ -142,6 +143,16 @@ function goBack() {
   font-weight: 600;
   color: var(--ink-soft);
   margin-bottom: 6px;
+}
+
+.word-explanation {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #f5f0ea;
+  border-radius: 6px;
 }
 
 .word-example {

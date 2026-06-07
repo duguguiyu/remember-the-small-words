@@ -59,8 +59,13 @@ export async function syncWordbooks(
 
   for (const entry of entries) {
     const local = localMap.get(entry.id)
-    if (local && local.md5 === entry.fileMd5) {
-      updatedBooks.push(local)
+    if (!isDev && local && local.md5 === entry.fileMd5) {
+      updatedBooks.push({
+        ...local,
+        name: entry.name,
+        category: entry.category,
+        categoryName: entry.categoryName,
+      })
     } else {
       onProgress?.(`正在下载: ${entry.categoryName} - ${entry.name}`)
       try {

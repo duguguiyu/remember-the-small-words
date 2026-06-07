@@ -95,7 +95,7 @@ def upload_data(key, data_bytes):
 
     auth = Auth(QINIU_AK, QINIU_SK)
     token = auth.upload_token(BUCKET, key, 3600)
-    ret, info = put_data(token, key, data_bytes, version='v2')
+    ret, info = put_data(token, key, data_bytes)
     if info.status_code == 200:
         print(f'  Uploaded: {key}')
     else:
@@ -117,7 +117,8 @@ def deploy():
     run_build()
 
     print('\n==> Loading datasets/index.yaml...')
-    entries = load_index_yaml()
+    data = load_index_yaml()
+    entries = data['wordbooks'] if isinstance(data, dict) else data
     print(f'Found {len(entries)} wordbooks.')
 
     print('\n==> Generating index.csv...')
