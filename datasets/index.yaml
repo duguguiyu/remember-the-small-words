@@ -1,0 +1,96 @@
+wordbooks:
+  - id: school_6_unit1
+    name: "Unit 1 Visiting Canada"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit1.csv
+
+  - id: school_6_unit2
+    name: "Unit 2 All Around Me"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit2.csv
+
+  - id: school_6_unit3
+    name: "Unit 3 Daily Life"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit3.csv
+
+  - id: school_6_unit4
+    name: "Unit 4 Free Time"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit4.csv
+
+  - id: school_6_unit5
+    name: "Unit 5 Nature and Culture"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit5.csv
+
+  - id: school_6_unit6
+    name: "Unit 6 Summer Vacation"
+    category: school_6
+    category_name: "小学六年级英语"
+    file: school_6_unit6.csv
+
+  - id: ket3_0327
+    name: "3/27 Test1"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0327.csv
+
+  - id: ket3_0403
+    name: "4/3 Test1"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0403.csv
+
+  - id: ket3_0410
+    name: "4/10 Test1"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0410.csv
+
+  - id: ket3_0417
+    name: "4/17 Test1"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0417.csv
+
+  - id: ket3_0424
+    name: "4/24 Test2"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0424.csv
+
+  - id: ket3_0430
+    name: "4/30 Test2"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0430.csv
+
+  - id: ket3_0508
+    name: "5/8 Test2"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0508.csv
+
+  - id: ket3_0515
+    name: "5/15 Test2+3"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0515.csv
+
+  - id: ket3_0522
+    name: "5/22 Test3"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0522.csv
+
+  - id: ket3_0529
+    name: "5/29 Test3"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0529.csv

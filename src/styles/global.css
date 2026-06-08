@@ -1,0 +1,197 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap');
+
+:root {
+  --bg-1: #FFF4E6;
+  --bg-2: #FFE8C9;
+  --bg-3: #FFDDE1;
+  --ink: #3D2B1F;
+  --ink-soft: #7A5C48;
+  --ink-light: #B89B85;
+  --paper: #FFFFFF;
+  --paper-warm: #FFFBF3;
+  --line: #F1E0CC;
+
+  --p1: #FF6B6B;
+  --p1-deep: #E84F4F;
+  --p2: #FFB546;
+  --p2-deep: #F09020;
+  --p3: #4ECDC4;
+  --p3-deep: #2BB8AE;
+  --p4: #A78BFA;
+  --yellow: #FFD93D;
+  --pink: #FFA8C5;
+
+  --good: #51CF66;
+  --good-deep: #37B24D;
+  --bad: #FF6B6B;
+
+  --r-lg: 24px;
+  --r-md: 18px;
+  --r-sm: 12px;
+  --shadow-card: 0 6px 0 rgba(61,43,31,.08), 0 4px 24px rgba(255,107,107,.10);
+  --shadow-pop: 0 8px 0 rgba(61,43,31,.12), 0 12px 32px rgba(255,107,107,.18);
+  --shadow-btn: 0 5px 0 var(--btn-shadow, #C44545);
+
+  --font: 'Fredoka', 'ZCOOL KuaiLe', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft Yahei', sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-weight: 500;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 8%, #FFE0BC 0%, transparent 35%),
+    radial-gradient(circle at 88% 18%, #FFD0DC 0%, transparent 38%),
+    radial-gradient(circle at 50% 95%, #BFEBE7 0%, transparent 45%),
+    linear-gradient(160deg, var(--bg-1) 0%, var(--bg-2) 60%, var(--bg-3) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(circle, rgba(255,181,70,.35) 1.5px, transparent 2px),
+    radial-gradient(circle, rgba(255,107,107,.25) 1.5px, transparent 2px);
+  background-size: 48px 48px, 73px 73px;
+  background-position: 0 0, 24px 36px;
+  opacity: .55;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: var(--font);
+}
+
+input {
+  font-family: var(--font);
+  outline: none;
+}
+
+/* Shared button styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border: none;
+  cursor: pointer;
+  border-radius: var(--r-md);
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 700;
+  transition: transform .12s, box-shadow .12s;
+  user-select: none;
+  --btn-shadow: #C44545;
+  background: linear-gradient(180deg, #FF8E5E, #FF6B4B);
+  color: #fff;
+  box-shadow: 0 5px 0 var(--btn-shadow);
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 var(--btn-shadow);
+}
+
+.btn-primary {
+  --btn-shadow: #C04428;
+  background: linear-gradient(180deg, #FF8E5E, #FF6B4B);
+  color: #fff;
+}
+
+.btn-secondary {
+  --btn-shadow: #D9C8B0;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2.5px solid var(--line);
+}
+
+.btn-success {
+  --btn-shadow: #2A9D40;
+  background: linear-gradient(180deg, #65E07C, #43C95E);
+  color: #fff;
+}
+
+.btn-mint {
+  --btn-shadow: #2BB8AE;
+  background: linear-gradient(180deg, #6FE0D8, #4ECDC4);
+  color: #fff;
+}
+
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+.btn-large {
+  padding: 18px 30px;
+  font-size: 18px;
+  border-radius: 20px;
+}
+
+.btn-small {
+  padding: 10px 16px;
+  font-size: 14px;
+  border-radius: 14px;
+}
+
+/* Card base */
+.card {
+  background: var(--paper);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-card);
+  border: 2.5px solid var(--line);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
