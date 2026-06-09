@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue'
+import { onMounted, ref, reactive, computed } from 'vue'
 import { usePlansStore } from '@/stores/plans'
 import { useWordbooksStore } from '@/stores/wordbooks'
 import { useSessionsStore } from '@/stores/sessions'
 import { useWordsStore } from '@/stores/words'
 import { Storage, KEYS } from '@/lib/storage'
 import { PLAN_COLORS } from '@/lib/types'
-import type { LearningPlan, BackupData } from '@/lib/types'
+import type { LearningPlan, BackupData, Wordbook } from '@/lib/types'
 
 const plansStore = usePlansStore()
 const wordbooksStore = useWordbooksStore()
@@ -49,6 +49,7 @@ function openNewPlan() {
   planForm.chineseToEnglishCount = 10
   planForm.fillBlankCount = 5
   planForm.color = plansStore.getRandomColor()
+  expandedCategories.value = new Set()
   showPlanEditor.value = true
 }
 
@@ -60,6 +61,13 @@ function openEditPlan(plan: LearningPlan) {
   planForm.chineseToEnglishCount = plan.chineseToEnglishCount
   planForm.fillBlankCount = plan.fillBlankCount
   planForm.color = plan.color
+  // Expand categories that have selected wordbooks
+  const cats = new Set<string>()
+  for (const id of plan.wordbookIds) {
+    const wb = wordbooksStore.wordbooks.find(w => w.id === id)
+    if (wb) cats.add(wb.category)
+  }
+  expandedCategories.value = cats
   showPlanEditor.value = true
 }
 
@@ -79,6 +87,57 @@ async function deletePlan() {
   if (editingPlanId.value) {
     await plansStore.removePlan(editingPlanId.value)
     showPlanEditor.value = false
+  }
+}
+
+const expandedCategories = ref<Set<string>>(new Set())
+
+interface CategoryGroup {
+  category: string
+  categoryName: string
+  books: Wordbook[]
+}
+
+const groupedWordbooks = computed<CategoryGroup[]>(() => {
+  const map = new Map<string, CategoryGroup>()
+  for (const book of wordbooksStore.wordbooks) {
+    if (!map.has(book.category)) {
+      map.set(book.category, { category: book.category, categoryName: book.categoryName, books: [] })
+    }
+    map.get(book.category)!.books.push(book)
+  }
+  return Array.from(map.values())
+})
+
+function toggleCategory(category: string) {
+  if (expandedCategories.value.has(category)) {
+    expandedCategories.value.delete(category)
+  } else {
+    expandedCategories.value.add(category)
+  }
+}
+
+function isCategoryAllSelected(group: CategoryGroup): boolean {
+  return group.books.every(b => planForm.wordbookIds.includes(b.id))
+}
+
+function isCategoryPartialSelected(group: CategoryGroup): boolean {
+  const selected = group.books.filter(b => planForm.wordbookIds.includes(b.id))
+  return selected.length > 0 && selected.length < group.books.length
+}
+
+function toggleCategorySelection(group: CategoryGroup) {
+  if (isCategoryAllSelected(group)) {
+    for (const b of group.books) {
+      const idx = planForm.wordbookIds.indexOf(b.id)
+      if (idx >= 0) planForm.wordbookIds.splice(idx, 1)
+    }
+  } else {
+    for (const b of group.books) {
+      if (!planForm.wordbookIds.includes(b.id)) {
+        planForm.wordbookIds.push(b.id)
+      }
+    }
   }
 }
 
@@ -198,18 +257,33 @@ async function saveSettings() {
         <div class="form-group">
           <label>选择词库</label>
           <div class="wordbook-selector">
-            <label
-              v-for="book in wordbooksStore.wordbooks"
-              :key="book.id"
-              class="wordbook-option"
-            >
-              <input
-                type="checkbox"
-                :checked="planForm.wordbookIds.includes(book.id)"
-                @change="toggleWordbook(book.id)"
-              />
-              <span>{{ book.categoryName }} - {{ book.name }}</span>
-            </label>
+            <div v-for="group in groupedWordbooks" :key="group.category" class="wb-category">
+              <div class="wb-category-header" @click="toggleCategory(group.category)">
+                <input
+                  type="checkbox"
+                  :checked="isCategoryAllSelected(group)"
+                  :indeterminate="isCategoryPartialSelected(group)"
+                  @click.stop
+                  @change="toggleCategorySelection(group)"
+                />
+                <span class="wb-category-name">{{ group.categoryName }}</span>
+                <span :class="['wb-arrow', { expanded: expandedCategories.has(group.category) }]">›</span>
+              </div>
+              <div v-show="expandedCategories.has(group.category)" class="wb-category-books">
+                <label
+                  v-for="book in group.books"
+                  :key="book.id"
+                  class="wordbook-option"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="planForm.wordbookIds.includes(book.id)"
+                    @change="toggleWordbook(book.id)"
+                  />
+                  <span>{{ book.name }}</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -443,29 +517,81 @@ async function saveSettings() {
 }
 
 .wordbook-selector {
-  max-height: 160px;
+  max-height: 220px;
   overflow-y: auto;
   border: 2.5px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 10px;
+  padding: 6px;
   background: var(--paper);
+}
+
+.wb-category {
+  margin-bottom: 2px;
+}
+
+.wb-category-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .12s;
+}
+
+.wb-category-header:hover {
+  background: rgba(61,43,31,.04);
+}
+
+.wb-category-header input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.wb-category-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.wb-arrow {
+  font-size: 16px;
+  color: var(--ink-light);
+  transition: transform .2s;
+}
+
+.wb-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.wb-category-books {
+  padding-left: 12px;
 }
 
 .wordbook-option {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px;
-  font-size: 14px;
+  padding: 5px 6px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
+  border-radius: 4px;
+  transition: background .12s;
+}
+
+.wordbook-option:hover {
+  background: rgba(61,43,31,.03);
 }
 
 .wordbook-option input[type="checkbox"] {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   margin: 0 4px 0 0;
 }
 
