@@ -94,3 +94,27 @@ wordbooks:
     category: ket3
     category_name: "KET真题3"
     file: ket3_0529.csv
+
+  - id: ket3_0605
+    name: "6/5 Test3+4"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0605.csv
+
+  - id: ket3_0626
+    name: "6/26 Test4"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0626.csv
+
+  - id: ket3_0701
+    name: "7/1 Test4"
+    category: ket3
+    category_name: "KET真题3"
+    file: ket3_0701.csv
+
+  - id: placement_1
+    name: "placement_1"
+    category: placement
+    category_name: "分班考试"
+    file: placement_1.csv
