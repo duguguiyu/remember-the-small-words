@@ -58,6 +58,17 @@ CSV 格式（v2，6列）：
 english,chinese,phonetic,exampleEn,exampleCn,explanation
 ```
 
+分班考试 Excel 高频词表可通过脚本导入并替换 `placement_1`：
+```bash
+python3 -m nltk.downloader cmudict
+python3 scripts/import_placement_xlsx.py "/path/to/wordbook.xlsx"
+```
+
+源表需包含 `序号、单词、词频、释意` 四列。脚本会从
+`scripts/data/placement_1_examples.csv` 合并逐词编写的双语例句，补充 IPA
+并标注明确的复数形式；源表与例句表不一致时会终止导入。原表词频仅用于
+确定词条顺序，不写入会在学习页展示的说明字段。
+
 发布时会自动计算 MD5、生成 index.csv 并上传到 CDN。
 
 ## 项目结构

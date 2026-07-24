@@ -1,2 +1,4 @@
 qiniu
 pyyaml
+openpyxl
+nltk
