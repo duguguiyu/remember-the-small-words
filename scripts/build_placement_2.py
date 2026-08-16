@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Build datasets/placement_2.csv from notebook vocabulary."""
+
+from __future__ import annotations
+
+import csv
+import re
+from pathlib import Path
+
+from nltk.corpus import cmudict
+
+ROOT = Path(__file__).resolve().parent.parent
+OUTPUT = ROOT / "datasets" / "placement_2.csv"
+
+ARPABET_TO_IPA = {
+    "AA": "ɑ",
+    "AE": "æ",
+    "AH": "ʌ",
+    "AO": "ɔ",
+    "AW": "aʊ",
+    "AY": "aɪ",
+    "B": "b",
+    "CH": "tʃ",
+    "D": "d",
+    "DH": "ð",
+    "EH": "ɛ",
+    "ER": "ɜr",
+    "EY": "eɪ",
+    "F": "f",
+    "G": "ɡ",
+    "HH": "h",
+    "IH": "ɪ",
+    "IY": "i",
+    "JH": "dʒ",
+    "K": "k",
+    "L": "l",
+    "M": "m",
+    "N": "n",
+    "NG": "ŋ",
+    "OW": "oʊ",
+    "OY": "ɔɪ",
+    "P": "p",
+    "R": "r",
+    "S": "s",
+    "SH": "ʃ",
+    "T": "t",
+    "TH": "θ",
+    "UH": "ʊ",
+    "UW": "u",
+    "V": "v",
+    "W": "w",
+    "Y": "j",
+    "Z": "z",
+    "ZH": "ʒ",
+}
+
+PHONETIC_OVERRIDES = {
+    "regard as": "/rɪˈɡɑːd æz/",
+    "be proud of": "/biː praʊd əv/",
+    "take pride in": "/teɪk praɪd ɪn/",
+    "all kinds of": "/ɔːl kaɪndz əv/",
+    "have to": "/ˈhæv tuː/",
+    "fail to": "/feɪl tuː/",
+    "be good at": "/biː ɡʊd æt/",
+    "do well in": "/duː wel ɪn/",
+    "be good for": "/biː ɡʊd fɔː/",
+    "have difficulty": "/hæv ˈdɪfɪkəlti/",
+    "try one's best": "/traɪ wʌnz best/",
+    "so ... that": "/səʊ ... ðæt/",
+    "so that": "/səʊ ðæt/",
+    "turn into": "/tɜːn ˈɪntuː/",
+    "the rest": "/ðə rest/",
+    "cheer up": "/tʃɪə ʌp/",
+    "according to": "/əˈkɔːdɪŋ tuː/",
+    "have to do with": "/hæv tə duː wɪð/",
+    "focus on": "/ˈfəʊkəs ɒn/",
+    "make a difference": "/meɪk ə ˈdɪfrəns/",
+    "in order to": "/ɪn ˈɔːdə tuː/",
+}
+
+# english, chinese, exampleEn, exampleCn, explanation
+ENTRIES: list[tuple[str, str, str, str, str]] = [
+    ("regard as", "认为……是……", "Many people regard dogs as family members.", "许多人把狗视为家庭成员。", "phrase. regard A as B 把A视为B"),
+    ("glad", "高兴的", "I am glad to see you again.", "我很高兴再次见到你。", "adj. 高兴的。be glad to do sth."),
+    ("proud", "骄傲的；自豪的", "Her parents are proud of her.", "她的父母为她感到自豪。", "adj. 自豪的；骄傲的"),
+    ("be proud of", "为……感到自豪", "You should be proud of your progress.", "你应该为自己的进步感到自豪。", "phrase. 为……感到自豪"),
+    ("pride", "自豪；骄傲", "She felt great pride in her son's success.", "她为儿子的成功感到非常自豪。", "n. 自豪；骄傲。proud adj. 自豪的"),
+    ("take pride in", "以……为傲", "We take pride in our work.", "我们为自己的工作感到自豪。", "phrase. 为……感到自豪"),
+    ("all kinds of", "各种各样的", "The shop sells all kinds of books.", "这家商店出售各种各样的书。", "phrase. 各种各样的。后接可数名词复数或不可数名词"),
+    ("free", "免费的；自由的；空闲的", "Admission to the museum is free.", "这家博物馆免费入场。", "adj. 免费的；自由的；空闲的"),
+    ("allow", "允许", "My parents allow me to use the computer.", "我的父母允许我使用电脑。", "v. 允许。allow sb. to do sth."),
+    ("law", "法律", "Everyone must obey the law.", "每个人都必须遵守法律。", "n. 法律；法规"),
+    ("punish", "惩罚", "The teacher will not punish you for an honest mistake.", "老师不会因无心之失而惩罚你。", "v. 惩罚。punish sb. for sth."),
+    ("senior", "高级的；年长的", "She is a senior manager in the company.", "她是公司的高级经理。", "adj. 高级的；年长的；资深的"),
+    ("junior", "地位较低的；年幼的", "He started work as a junior reporter.", "他刚工作时是一名初级记者。", "adj. 初级的；职位较低的；年幼的"),
+    ("meal", "餐；一餐", "Breakfast is the most important meal of the day.", "早餐是一天中最重要的一餐。", "n. 一餐；饭"),
+    ("cost", "花费；费用", "The new computer will cost a lot of money.", "这台新电脑会花很多钱。", "v. 花费；n. 费用。cost-cost-cost"),
+    ("company", "公司；陪伴", "She works for a large company.", "她在一家大公司工作。", "n. 公司；陪伴"),
+    ("have to", "不得不；必须", "I have to finish my homework tonight.", "我今晚必须完成作业。", "phrase. 不得不；必须。后接动词原形"),
+    ("especially", "尤其；特别", "I like fruit, especially oranges.", "我喜欢水果，尤其是橙子。", "adv. 尤其；特别"),
+    ("finally", "终于；最后", "We finally arrived at the station.", "我们终于到达了车站。", "adv. 最后；终于"),
+    ("fail", "失败；未能做到；不及格", "Do not be afraid to fail.", "不要害怕失败。", "v. 失败；未能做到；不及格"),
+    ("fail to", "未能做某事", "She may fail to finish her homework tonight.", "她今晚可能无法完成作业。", "phrase. 未能做某事。fail to + 动词原形"),
+    ("weak", "虚弱的", "He felt weak after being ill.", "他生病后感到很虚弱。", "adj. 虚弱的；薄弱的。反义词 strong"),
+    ("medicine", "药物；药剂", "The doctor gave me some medicine.", "医生给了我一些药。", "n. 药物；药剂。通常作不可数名词"),
+    ("continue", "继续", "We will continue the trip after lunch.", "午饭后我们继续旅行。", "v. 继续。continue doing/to do sth."),
+    ("work", "起作用", "This medicine did not work.", "这种药没有起作用。", "v. 工作；运转；起作用"),
+    ("prove", "证明", "The test results prove that she is right.", "测试结果证明她是对的。", "v. 证明。prove-proved-proved/proven"),
+    ("traditional", "传统的", "Dumplings are a traditional food in China.", "饺子是中国的传统食物。", "adj. 传统的。tradition n. 传统"),
+    ("ambition", "雄心；抱负", "His ambition is to become a doctor.", "他的抱负是成为一名医生。", "n. 雄心；抱负。ambitious adj. 有抱负的"),
+    ("concert", "音乐会", "We went to a concert last night.", "我们昨晚去听了一场音乐会。", "n. 音乐会"),
+    ("manage", "管理；设法做到", "Can you manage this project by yourself?", "你能独自管理这个项目吗？", "v. 管理；控制。manage to do sth. 设法做成某事"),
+    ("neither", "两者都不", "Neither of the answers is correct.", "两个答案都不对。", "det./pron. 两者都不。neither ... nor ..."),
+    ("either", "两者中的任意一个", "You can take either book.", "两本书你拿哪一本都可以。", "det./pron. 两者中的任意一个。either ... or ..."),
+    ("both", "两者都", "Both students passed the exam.", "两个学生都通过了考试。", "det./pron. 两者都。both ... and ..."),
+    ("none", "都不（三者或以上）", "None of the three books is easy.", "这三本书没有一本是容易的。", "pron. （三者或以上）都不"),
+    ("comb", "梳子；梳", "She used a comb to tidy her hair.", "她用梳子梳理头发。", "n. 梳子；v. 梳"),
+    ("be good at", "擅长于……", "You can be good at maths with practice.", "多加练习，你就能擅长数学。", "phrase. 擅长。后接名词或动名词"),
+    ("do well in", "在……方面做得好", "I hope you do well in the English test.", "我希望你英语考试考得好。", "phrase. 在某方面表现好"),
+    ("be good for", "对……有好处", "Fresh air can be good for your health.", "新鲜空气对你的健康有好处。", "phrase. 对……有益"),
+    ("souvenir", "纪念品", "I bought a small souvenir from the museum.", "我在博物馆买了一件小纪念品。", "n. 纪念品"),
+    ("smoke", "烟；抽烟", "Please do not smoke in the classroom.", "请不要在教室里抽烟。", "n. 烟；v. 抽烟"),
+    ("spit", "吐；唾液", "It is rude to spit on the street.", "在街上吐痰是不礼貌的。", "v. 吐；n. 唾液。spit-spat-spat"),
+    ("center", "中心", "The fountain is in the center of the square.", "喷泉在广场的中心。", "n. 中心。英式拼写 centre"),
+    ("accept", "接受", "She decided to accept the invitation.", "她决定接受邀请。", "v. 接受。区别 receive 收到"),
+    ("receive", "收到；接收", "Did you receive my message this morning?", "你今天早上收到我的消息了吗？", "v. 收到；接收"),
+    ("advantage", "优势；优点", "Being tall is an advantage in basketball.", "个子高在篮球运动中是一种优势。", "n. 优势；优点。take advantage of 利用"),
+    ("goal", "目标；目的", "My goal is to learn ten new words a day.", "我的目标是每天学十个新单词。", "n. 目标；（足球）球门"),
+    ("habit", "习惯", "Reading before bed is a good habit.", "睡前阅读是一个好习惯。", "n. 习惯。good/bad habits"),
+    ("correct", "正确的；纠正", "Can you help me correct this letter?", "你能帮我改一下这封信吗？", "adj. 正确的；v. 纠正"),
+    ("mistake", "错误", "I made a mistake in the last question.", "我在最后一题出了错。", "n. 错误。make a mistake 犯错"),
+    ("education", "教育", "Education can change a person's life.", "教育可以改变一个人的一生。", "n. 教育。educate v. 教育"),
+    ("graduate", "大学毕业生", "She is a graduate of this university.", "她是这所大学的毕业生。", "n. 毕业生；v. 毕业"),
+    ("situation", "情况；形势", "The situation is better than last week.", "情况比上周更好了。", "n. 情况；形势"),
+    ("have difficulty", "做某事有困难", "I have difficulty understanding this sentence.", "我理解这个句子有困难。", "phrase. 做某事有困难。have difficulty (in) doing"),
+    ("gentle", "温柔的", "She spoke in a gentle voice.", "她用温柔的声音说话。", "adj. 温柔的；轻柔的"),
+    ("bright", "明亮的", "The room is bright and clean.", "这个房间明亮又干净。", "adj. 明亮的；聪明的"),
+    ("insist", "坚持", "They insist on waiting for the bus.", "他们坚持要等公交车。", "v. 坚持。insist on doing sth."),
+    ("reply", "回答；回复", "Please reply to my email tonight.", "请今晚回复我的邮件。", "v./n. 回复。reply-replied-replied"),
+    ("strict", "严格的", "Our teacher is strict but fair.", "我们的老师很严格但很公平。", "adj. 严格的。be strict with sb."),
+    ("angry", "生气的；愤怒的", "He was angry about the broken window.", "他对打破的窗户很生气。", "adj. 生气的。be angry with sb. / about sth."),
+    ("satisfied", "满意的；满足的", "She was satisfied with her exam results.", "她对自己的考试成绩感到满意。", "adj. 满意的。be satisfied with"),
+    ("pleased", "高兴的", "I am pleased to meet you.", "我很高兴见到你。", "adj. 高兴的。be pleased to do"),
+    ("pleasant", "令人愉快的", "We had a pleasant talk after class.", "课后我们进行了一次愉快的交谈。", "adj. 令人愉快的。修饰事物"),
+    ("shame", "羞愧；羞耻", "He felt shame after telling a lie.", "他说谎后感到羞愧。", "n. 羞愧。What a shame! 真可惜！"),
+    ("lonely", "孤独的", "The old man felt lonely without his friends.", "没有朋友，老人感到很孤独。", "adj. 孤独的。区别 alone 独自的"),
+    ("poor", "贫穷的；可怜的；差的", "The family was too poor to buy new clothes.", "这家人太穷，买不起新衣服。", "adj. 贫穷的；可怜的；差的"),
+    ("discuss", "讨论", "We need to discuss the plan after school.", "我们放学后需要讨论这个计划。", "v. 讨论。discuss sth. with sb.（不加 about）"),
+    ("revolution", "革命", "The industrial revolution changed people's lives.", "工业革命改变了人们的生活。", "n. 革命"),
+    ("government", "政府", "The government built a new school here.", "政府在这里建了一所新学校。", "n. 政府"),
+    ("rent", "租金；租用", "How much is the rent for this room?", "这个房间的租金是多少？", "n. 租金；v. 租用；出租"),
+    ("official", "正式的；官员", "This is an official letter from the school.", "这是学校发出的正式信件。", "adj. 正式的；官方的；n. 官员"),
+    ("steal", "偷", "Someone tried to steal his bag on the bus.", "有人试图在公交车上偷他的包。", "v. 偷。steal-stole-stolen"),
+    ("try one's best", "尽某人最大的努力", "I will try my best to finish on time.", "我会尽最大努力按时完成。", "phrase. 尽某人最大努力。try one's/my/your best to do sth."),
+    ("gallery", "美术馆", "We spent the afternoon at the art gallery.", "我们在美术馆度过了下午。", "n. 美术馆；画廊"),
+    ("candle", "蜡烛", "She lit a candle when the power went out.", "停电时她点了一根蜡烛。", "n. 蜡烛"),
+    ("mark", "分数；记号", "He got a high mark on the English test.", "他英语考试得了高分。", "n. 分数；记号；v. 做标记"),
+    ("twins", "双胞胎（复数）", "My sisters are twins.", "我的姐姐们是双胞胎。", "n. twin的复数形式"),
+    ("job", "工作", "She is looking for a part-time job.", "她正在找一份兼职工作。", "n. 工作；职业"),
+    ("glass", "玻璃", "Be careful not to break the glass.", "小心别打破玻璃。", "n. 玻璃(不可数)；玻璃杯(可数)"),
+    ("factory", "工厂", "My uncle works in a car factory.", "我叔叔在一家汽车工厂工作。", "n. 工厂"),
+    ("empty", "空的", "The bottle is empty.", "瓶子是空的。", "adj. 空的。反义词 full"),
+    ("basket", "篮子", "She put the apples in a basket.", "她把苹果放进篮子里。", "n. 篮子"),
+    ("so ... that", "如此……以至于……", "She was so tired that she fell asleep.", "她太累了，以至于睡着了。", "conj. so + adj./adv. + that 从句"),
+    ("so that", "为的是；以便", "Speak louder so that everyone can hear you.", "大声点说，以便每个人都能听见。", "conj. 以便；结果是"),
+    ("turn into", "变成", "Water can turn into ice in winter.", "水在冬天可以变成冰。", "phrase. 变成"),
+    ("rest", "休息", "You should rest after a long walk.", "长途步行后你应该休息。", "v./n. 休息"),
+    ("the rest", "剩余部分", "I will eat the rest of the cake later.", "剩下的蛋糕我稍后再吃。", "phrase. 剩余的人或物"),
+    ("proper", "恰当的；合适的", "Wear proper clothes for the interview.", "面试时要穿合适的衣服。", "adj. 恰当的；合适的"),
+    ("participate", "参加", "Many students participate in the sports meeting.", "许多学生参加运动会。", "v. 参加。participate in"),
+    ("cheer", "欢呼；鼓舞", "The crowd began to cheer for the team.", "观众开始为这支队伍欢呼。", "v. 欢呼；喝彩；鼓舞"),
+    ("cheer up", "使振作起来", "A kind word can cheer up a sad friend.", "一句善意的话能让伤心的朋友振作起来。", "phrase. 使振作；高兴起来"),
+    ("guess", "猜测", "Can you guess the answer?", "你能猜出答案吗？", "v./n. 猜测"),
+    ("encourage", "鼓励", "My parents always encourage me to try.", "我的父母总是鼓励我去尝试。", "v. 鼓励。encourage sb. to do sth."),
+    ("change", "改变", "The weather can change quickly here.", "这里的天气变化很快。", "v./n. 改变；变化；零钱"),
+    ("through", "穿过；通过", "Sunlight came through the window.", "阳光透过窗户照了进来。", "prep./adv. 穿过；通过"),
+    ("calm", "平静的；使冷静", "Please stay calm in an emergency.", "紧急情况下请保持冷静。", "adj. 平静的；v. 使冷静"),
+    ("disappointed", "失望的", "He was disappointed with the result.", "他对结果感到失望。", "adj. 失望的。be disappointed with/at"),
+    ("wave", "波浪；挥手", "She gave me a friendly wave.", "她友好地向我挥了挥手。", "n. 波浪；v. 挥手"),
+    ("creative", "有创造力的", "She is a creative young artist.", "她是一位有创造力的年轻艺术家。", "adj. 有创造力的。create v. 创造"),
+    ("study", "学习；研究", "I study English every evening.", "我每天晚上学习英语。", "v./n. 学习；研究"),
+    ("rise", "上升；增加", "The sun will rise at six tomorrow.", "明天六点太阳会升起。", "v. 上升。rise-rose-risen。不及物动词"),
+    ("among", "在……当中", "She sat among her friends.", "她坐在朋友们中间。", "prep. 在（三者或以上）之中"),
+    ("engage", "参加；吸引", "Good stories engage the reader's attention.", "好故事能吸引读者的注意。", "v. 参加；吸引。engage in 参与"),
+    ("confidence", "自信", "She spoke with confidence in front of the class.", "她在全班面前自信地发言。", "n. 自信。confident adj. 自信的"),
+    ("chance", "机会", "This is a good chance to visit the museum.", "这是参观博物馆的好机会。", "n. 机会。take a chance 冒险一试"),
+    ("notice", "注意；注意到", "Did you notice the new poster on the wall?", "你注意到墙上的新海报了吗？", "v. 注意到；n. 通知；注意"),
+    ("gradually", "逐渐地", "The sky gradually became dark.", "天空逐渐变暗。", "adv. 逐渐地。gradual adj. 逐渐的"),
+    ("answer", "回答；答案", "I could not answer the phone in time.", "我没能及时接电话。", "v. 回答；n. 答案"),
+    ("follow", "跟随；遵循", "Please follow the signs to the exit.", "请跟着指示牌走到出口。", "v. 跟随；遵循"),
+    ("protect", "保护", "We should protect the environment.", "我们应该保护环境。", "v. 保护。protect ... from ..."),
+    ("character", "性格；角色", "The main character in the story is a brave girl.", "故事的主角是一个勇敢的女孩。", "n. 性格；品质；角色"),
+    ("page", "页；网页", "The map is on page ten of the book.", "地图在书的第十页。", "n. 页；网页"),
+    ("forget", "忘记", "Don't forget to lock the door.", "别忘了锁门。", "v. 忘记。forget-forgot-forgotten"),
+    ("according to", "根据……", "According to the map, the park is nearby.", "根据地图，公园就在附近。", "prep. 根据；按照"),
+    ("rare", "稀有的；少见的", "This bird is rare in our city.", "这种鸟在我们城市很少见。", "adj. 稀有的；少见的"),
+    ("absent", "缺席的", "Tom was absent from school because he was ill.", "汤姆因病缺席了学校课程。", "adj. 缺席的。be absent from"),
+    ("have to do with", "与某事有关", "The noise may have to do with the machine.", "这噪音可能和那台机器有关。", "phrase. 与……有关。have (something) to do with"),
+    ("simple", "简单的；朴素的", "The question looks simple but is not easy.", "这个问题看起来简单，但并不容易。", "adj. 简单的；朴素的"),
+    ("simply", "仅仅；只；简单地", "I simply forgot to call you.", "我只是忘了给你打电话。", "adv. 仅仅；简单地"),
+    ("develop", "发展；开发", "The city will develop a new park.", "这座城市将开发一个新公园。", "v. 发展；开发"),
+    ("development", "发展", "The development of the town is very fast.", "这个小镇的发展非常快。", "n. 发展。develop v. 发展"),
+    ("promote", "促进；推广；升职", "The school wants to promote reading.", "学校想推广阅读。", "v. 促进；推广；晋升"),
+    ("promotion", "促进；推广；升职", "She got a promotion last month.", "她上个月升职了。", "n. 促进；推广；升职"),
+    ("honor", "荣誉", "It is an honor to meet you.", "见到你是一种荣幸。", "n. 荣誉。英式拼写 honour"),
+    ("standard", "标准；水平", "This hotel meets a high standard.", "这家酒店达到了很高的标准。", "n. 标准；水平"),
+    ("behavior", "行为；举止", "His behavior made his parents proud.", "他的举止让父母感到骄傲。", "n. 行为。英式拼写 behaviour"),
+    ("focused", "专注的", "She stayed focused during the exam.", "她在考试期间保持专注。", "adj. 专注的。focus v. 集中"),
+    ("focus", "集中；关注", "Please focus on your homework.", "请把注意力集中在作业上。", "n./v. 焦点；集中"),
+    ("focus on", "专注于", "She needs to focus on her health.", "她需要把注意力放在健康上。", "phrase. 专注于；把注意力放在"),
+    ("make a difference", "有影响；起作用", "Small actions can make a difference.", "小小的行动也能产生影响。", "phrase. 有影响；起作用"),
+    ("highlight", "强调；突出", "The report will highlight the main risks.", "这份报告将突出主要风险。", "v. 强调；突出；n. 最精彩的部分"),
+    ("match", "比赛；匹配", "Our school will play a football match tomorrow.", "我们学校明天有一场足球比赛。", "n. 比赛；相配的人或物；v. 匹配"),
+    ("effect", "作用；影响；效果", "Regular exercise has a good effect on health.", "经常锻炼对健康有良好作用。", "n. 效果；影响。区别 affect v. 影响"),
+    ("useful", "有用的", "This dictionary is very useful.", "这本词典非常有用。", "adj. 有用的。use → useful"),
+    ("hold", "抓住；举行", "Please hold my bag for a minute.", "请帮我拿一下包。", "v. 抓住；举行。hold-held-held"),
+    ("excuse", "借口；理由", "He made an excuse to leave early.", "他找了个借口提前离开。", "n. 借口；v. 原谅"),
+    ("determine", "决定", "We must determine the date of the trip.", "我们必须确定旅行的日期。", "v. 决定；确定。determined adj. 坚定的"),
+    ("discourage", "使泄气；使灰心", "A bad score should not discourage you.", "一次糟糕的分数不该让你灰心。", "v. 使灰心。反义词 encourage"),
+    ("score", "得分", "Our team got a high score in the game.", "我们队在比赛中得了高分。", "n. 得分；v. 得分"),
+    ("engineer", "工程师", "My father is an engineer.", "我爸爸是一名工程师。", "n. 工程师"),
+    ("contain", "包含", "This box can contain twenty books.", "这个箱子能装二十本书。", "v. 包含；容纳"),
+    ("ingredient", "成分；原料", "Flour is the main ingredient of bread.", "面粉是面包的主要原料。", "n. 成分；原料"),
+    ("awake", "醒来；唤醒", "The noise kept me awake all night.", "噪音让我整夜没睡着。", "adj. 醒着的；v. 唤醒。awake-awoke-awoken"),
+    ("performance", "表演；表现", "Her performance on the test was excellent.", "她这次考试的表现非常出色。", "n. 表演；表现；业绩"),
+    ("anxiety", "焦虑", "She felt anxiety before the exam.", "考试前她感到焦虑。", "n. 焦虑。anxious adj. 焦虑的"),
+    ("harm", "伤害；损害", "Too much sugar can harm your teeth.", "吃太多糖会伤害牙齿。", "n./v. 伤害；损害"),
+    ("harmful", "有害的", "Smoking is harmful to health.", "吸烟对健康有害。", "adj. 有害的。be harmful to"),
+    ("nervous", "紧张的", "I always feel nervous before a test.", "考试前我总是感到紧张。", "adj. 紧张的"),
+    ("provide", "提供", "The school will provide lunch for students.", "学校将为学生提供午餐。", "v. 提供。provide sb. with sth."),
+    ("teenager", "青少年", "My cousin is a teenager now.", "我表弟现在是青少年了。", "n. 青少年（约13–19岁）"),
+    ("risk", "风险", "There is a risk of rain this afternoon.", "今天下午有下雨的风险。", "n. 风险；v. 冒险"),
+    ("popularity", "流行；受欢迎", "The song's popularity grew quickly.", "这首歌很快就流行起来了。", "n. 受欢迎；流行。popular adj."),
+    ("boost", "提高", "A good breakfast can boost your energy.", "一顿好的早餐能提高你的精力。", "v. 提高；促进"),
+    ("regular", "定期的；规律的", "She takes regular exercise every week.", "她每周定期锻炼。", "adj. 定期的；规律的"),
+    ("mention", "提到", "Did she mention the meeting to you?", "她有没有向你提到这次会议？", "v. 提到。Don't mention it. 不客气"),
+    ("in order to", "为了", "He got up early in order to catch the bus.", "他早起是为了赶上公交车。", "phrase. 为了。后接动词原形"),
+    ("sell", "售卖", "They sell ice cream in the shop.", "他们在店里卖冰激凌。", "v. 卖。sell-sold-sold"),
+    ("culture", "文化", "Tea is an important part of Chinese culture.", "茶是中国文化的重要部分。", "n. 文化。cultural adj. 文化的"),
+    ("shelf", "架子；书架", "Please put the book back on the shelf.", "请把书放回架子上。", "n. 架子。复数 shelves"),
+]
+
+
+def arpabet_to_ipa(phones: list[str]) -> str:
+    result: list[str] = []
+    for phone in phones:
+        match = re.fullmatch(r"([A-Z]+)([012]?)", phone)
+        if not match:
+            raise ValueError(f"Unsupported ARPABET phone: {phone}")
+        symbol, stress = match.groups()
+        ipa = ARPABET_TO_IPA[symbol]
+        if symbol == "AH" and stress == "0":
+            ipa = "ə"
+        elif symbol == "ER" and stress == "0":
+            ipa = "ər"
+        if stress == "1":
+            result.append("ˈ")
+        elif stress == "2":
+            result.append("ˌ")
+        result.append(ipa)
+    return f"/{''.join(result)}/"
+
+
+def phonetic_for(word: str, pronunciations: dict) -> str:
+    key = word.casefold()
+    if key in PHONETIC_OVERRIDES:
+        return PHONETIC_OVERRIDES[key]
+    if key in pronunciations:
+        return arpabet_to_ipa(pronunciations[key][0])
+    raise ValueError(f"No pronunciation for {word!r}")
+
+
+def example_covers_headword(english: str, example_en: str) -> bool:
+    if english.casefold() in example_en.casefold():
+        return True
+    flexed = re.sub(r"\bone's\b", r"(?:one's|my|your|his|her|our|their)", english, flags=re.I)
+    if flexed != english and re.search(flexed, example_en, flags=re.I):
+        return True
+    parts = [p for p in re.split(r"\s*\.\.\.\s*|\s+", english) if p]
+    if len(parts) == 2:
+        pattern = rf"{re.escape(parts[0])}\s+\S+\s+{re.escape(parts[1])}"
+        return re.search(pattern, example_en, flags=re.I) is not None
+    return False
+
+
+def main() -> None:
+    pronunciations = cmudict.dict()
+    seen: set[str] = set()
+    rows: list[list[str]] = []
+    for english, chinese, example_en, example_cn, explanation in ENTRIES:
+        key = english.casefold()
+        if key in seen:
+            raise ValueError(f"Duplicate headword: {english}")
+        seen.add(key)
+        if not example_covers_headword(english, example_en):
+            raise ValueError(f"{english!r} missing from example: {example_en}")
+        phonetic = phonetic_for(english, pronunciations)
+        rows.append([english, chinese, phonetic, example_en, example_cn, explanation])
+
+    with OUTPUT.open("w", encoding="utf-8", newline="") as file:
+        csv.writer(file, lineterminator="\n").writerows(rows)
+    print(f"Wrote {len(rows)} entries to {OUTPUT}")
+
+
+if __name__ == "__main__":
+    main()

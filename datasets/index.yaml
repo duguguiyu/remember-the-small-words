@@ -118,3 +118,9 @@ wordbooks:
     category: placement
     category_name: "分班考试"
     file: placement_1.csv
+
+  - id: placement_2
+    name: "placement_2"
+    category: placement
+    category_name: "分班考试"
+    file: placement_2.csv
