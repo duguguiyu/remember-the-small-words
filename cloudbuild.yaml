@@ -1,0 +1,47 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$COMMIT_SHA
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$COMMIT_SHA
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --allow-unauthenticated
+      - --add-cloudsql-instances
+      - $PROJECT_ID:${_REGION}:${_INSTANCE}
+      - --set-env-vars
+      - NODE_ENV=production,PORT=8080,DATASETS_DIR=/app/datasets,PUBLIC_DIR=/app/server/public,BOOTSTRAP_ADMIN_USER=admin
+      - --set-secrets
+      - DATABASE_URL=rtsw-database-url:latest,JWT_SECRET=rtsw-jwt-secret:latest,BOOTSTRAP_ADMIN_PASSWORD=rtsw-bootstrap-admin-password:latest
+      - --memory
+      - 512Mi
+
+substitutions:
+  _REGION: asia-east1
+  _REPO: rtsw
+  _SERVICE: rtsw
+  _INSTANCE: rtsw-pg
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { usePlansStore } from '@/stores/plans'
 import { useWordbooksStore } from '@/stores/wordbooks'
-import { useSessionsStore } from '@/stores/sessions'
-import { useWordsStore } from '@/stores/words'
-import { Storage, KEYS } from '@/lib/storage'
+import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
 import { PLAN_COLORS } from '@/lib/types'
-import type { LearningPlan, BackupData, Wordbook } from '@/lib/types'
+import type { LearningPlan, Wordbook } from '@/lib/types'
 
+const router = useRouter()
 const plansStore = usePlansStore()
 const wordbooksStore = useWordbooksStore()
-const sessionsStore = useSessionsStore()
-const wordsStore = useWordsStore()
+const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 
 const showPlanEditor = ref(false)
 const editingPlanId = ref<string | null>(null)
@@ -24,22 +25,18 @@ const planForm = reactive({
   color: '',
 })
 
-const settings = reactive({
-  ttsEnabled: true,
-  soundEnabled: true,
-})
-
 onMounted(async () => {
   await Promise.all([
     plansStore.load(),
     wordbooksStore.load(),
-    sessionsStore.load(),
-    wordsStore.load(),
+    settingsStore.load(),
   ])
-  const saved = await Storage.get(KEYS.SETTINGS, { ttsEnabled: true, soundEnabled: true })
-  settings.ttsEnabled = saved.ttsEnabled
-  settings.soundEnabled = saved.soundEnabled
 })
+
+async function logout() {
+  await authStore.logout()
+  router.replace({ name: 'login' })
+}
 
 function openNewPlan() {
   editingPlanId.value = null
@@ -150,56 +147,8 @@ function toggleWordbook(id: string) {
   }
 }
 
-async function exportBackup() {
-  const data: BackupData = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    wordStats: wordsStore.stats,
-    sessions: sessionsStore.sessions,
-    plans: plansStore.plans,
-    streak: await Storage.get(KEYS.STREAK, { count: 0, lastDay: '' }),
-  }
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `josh-backup-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  URL.revokeObjectURL(url)
-  await Storage.set(KEYS.LAST_BACKUP, new Date().toISOString())
-}
-
-function importBackup() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json'
-  input.onchange = async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0]
-    if (!file) return
-    const text = await file.text()
-    try {
-      const data = JSON.parse(text) as BackupData
-      if (data.version !== 2) {
-        alert('备份文件版本不兼容')
-        return
-      }
-      await Storage.set(KEYS.WORD_STATS, data.wordStats)
-      await Storage.set(KEYS.SESSIONS, data.sessions)
-      await Storage.set(KEYS.PLANS, data.plans)
-      await Storage.set(KEYS.STREAK, data.streak)
-      await wordsStore.load()
-      await sessionsStore.load()
-      await plansStore.load()
-      alert('数据恢复成功！')
-    } catch {
-      alert('备份文件格式错误')
-    }
-  }
-  input.click()
-}
-
 async function saveSettings() {
-  await Storage.set(KEYS.SETTINGS, { ...settings })
+  await settingsStore.save()
 }
 </script>
 
@@ -321,26 +270,23 @@ async function saveSettings() {
       </div>
     </div>
 
-    <!-- Backup -->
-    <section class="section">
-      <h3>数据管理</h3>
-      <div class="action-row">
-        <button class="btn-action" @click="exportBackup">导出备份</button>
-        <button class="btn-action" @click="importBackup">导入备份</button>
-      </div>
-    </section>
-
     <!-- Preferences -->
     <section class="section">
       <h3>偏好设置</h3>
       <div class="toggle-row">
         <span>语音朗读 (TTS)</span>
-        <input type="checkbox" v-model="settings.ttsEnabled" @change="saveSettings" />
+        <input type="checkbox" v-model="settingsStore.ttsEnabled" @change="saveSettings" />
       </div>
       <div class="toggle-row">
         <span>音效</span>
-        <input type="checkbox" v-model="settings.soundEnabled" @change="saveSettings" />
+        <input type="checkbox" v-model="settingsStore.soundEnabled" @change="saveSettings" />
       </div>
+    </section>
+
+    <section class="section">
+      <h3>账号</h3>
+      <p class="account-name">{{ authStore.user?.username }}</p>
+      <button class="btn-action" @click="logout">退出登录</button>
     </section>
   </div>
 </template>
@@ -684,6 +630,12 @@ async function saveSettings() {
 .btn-action:active {
   transform: translateY(2px);
   box-shadow: 0 1px 0 rgba(61,43,31,.06);
+}
+
+.account-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .toggle-row {

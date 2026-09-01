@@ -1,30 +1,28 @@
 import { defineStore } from 'pinia'
-import { ref, computed, toRaw } from 'vue'
+import { ref, computed } from 'vue'
 import type { SessionRecord } from '@/lib/types'
-import { Storage, KEYS } from '@/lib/storage'
+import { api } from '@/lib/api'
 import { getBeijingDateStr } from '@/lib/date'
 
 export const useSessionsStore = defineStore('sessions', () => {
   const sessions = ref<SessionRecord[]>([])
 
   async function load() {
-    sessions.value = await Storage.get<SessionRecord[]>(KEYS.SESSIONS, [])
-  }
-
-  async function save() {
-    await Storage.set(KEYS.SESSIONS, JSON.parse(JSON.stringify(toRaw(sessions.value))))
+    sessions.value = await api<SessionRecord[]>('/api/sessions')
   }
 
   async function addSession(session: SessionRecord) {
-    sessions.value.push(session)
-    await save()
+    const created = await api<SessionRecord>('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify(session),
+    })
+    sessions.value.push(created)
   }
 
   async function updateSession(id: string, updates: Partial<SessionRecord>) {
     const idx = sessions.value.findIndex((s) => s.id === id)
     if (idx >= 0) {
       sessions.value[idx] = { ...sessions.value[idx], ...updates }
-      await save()
     }
   }
 
@@ -55,7 +53,7 @@ export const useSessionsStore = defineStore('sessions', () => {
     todaySessions,
     firstSessionDate,
     load,
-    save,
+    save: async () => {},
     addSession,
     updateSession,
     getSessionsByDate,

@@ -1,17 +1,13 @@
 import { defineStore } from 'pinia'
-import { ref, toRaw } from 'vue'
+import { ref } from 'vue'
 import type { WordStats } from '@/lib/types'
-import { Storage, KEYS } from '@/lib/storage'
+import { api, enqueueWrite } from '@/lib/api'
 
 export const useWordsStore = defineStore('words', () => {
   const stats = ref<Record<string, WordStats>>({})
 
   async function load() {
-    stats.value = await Storage.get<Record<string, WordStats>>(KEYS.WORD_STATS, {})
-  }
-
-  async function save() {
-    await Storage.set(KEYS.WORD_STATS, JSON.parse(JSON.stringify(toRaw(stats.value))))
+    stats.value = await api<Record<string, WordStats>>('/api/word-stats')
   }
 
   function getStats(english: string): WordStats {
@@ -55,8 +51,14 @@ export const useWordsStore = defineStore('words', () => {
     next.setDate(next.getDate() + s.interval)
     s.nextReviewTime = next.toISOString().slice(0, 10)
 
-    await save()
+    const payload = { ...s }
+    await enqueueWrite(() =>
+      api('/api/word-stats', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }).then(() => undefined),
+    )
   }
 
-  return { stats, load, save, getStats, updateStats }
+  return { stats, load, save: async () => {}, getStats, updateStats }
 })

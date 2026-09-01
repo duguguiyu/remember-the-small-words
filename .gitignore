@@ -2,3 +2,15 @@ node_modules/
 dist/
 *.local
 .vite/
+.env
+server/.env
+server/node_modules/
+server/dist/
+server/public/
+server/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.local-deploy.pid
+.local-deploy.log

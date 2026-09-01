@@ -5,11 +5,11 @@ import { useWordbooksStore } from '@/stores/wordbooks'
 import { useWordsStore } from '@/stores/words'
 import { useSessionsStore } from '@/stores/sessions'
 import { useProgressStore } from '@/stores/progress'
+import { useSettingsStore } from '@/stores/settings'
 import { shuffle } from '@/lib/sm2'
 import { generateQuestions, checkAnswer } from '@/lib/questions'
 import { computeExamScore } from '@/lib/scoring'
 import { getBeijingDateStr } from '@/lib/date'
-import { Storage, KEYS } from '@/lib/storage'
 import { playCorrectSound, playWrongSound } from '@/lib/sound'
 import type { Word, Question, QuestionResult, Round, InProgressState } from '@/lib/types'
 import confetti from 'canvas-confetti'
@@ -19,6 +19,7 @@ const wordbooksStore = useWordbooksStore()
 const wordsStore = useWordsStore()
 const sessionsStore = useSessionsStore()
 const progressStore = useProgressStore()
+const settingsStore = useSettingsStore()
 
 const phase = ref<'config' | 'test' | 'review' | 'complete'>('config')
 const config = reactive({
@@ -53,6 +54,7 @@ onMounted(async () => {
     wordsStore.load(),
     sessionsStore.load(),
     progressStore.load(),
+    settingsStore.load(),
   ])
 
   if (progressStore.current && progressStore.current.type === 'exam') {

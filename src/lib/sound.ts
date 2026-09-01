@@ -1,4 +1,8 @@
-import { Storage, KEYS } from './storage'
+let soundEnabled = true
+
+export function setSoundEnabled(enabled: boolean) {
+  soundEnabled = enabled
+}
 
 let audioCtx: AudioContext | null = null
 
@@ -9,13 +13,12 @@ function getCtx(): AudioContext {
   return audioCtx
 }
 
-async function isSoundEnabled(): Promise<boolean> {
-  const settings = await Storage.get(KEYS.SETTINGS, { ttsEnabled: true, soundEnabled: true })
-  return settings.soundEnabled
+function isSoundEnabled(): boolean {
+  return soundEnabled
 }
 
 export async function playCorrectSound() {
-  if (!(await isSoundEnabled())) return
+  if (!isSoundEnabled()) return
   const ctx = getCtx()
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
@@ -23,9 +26,9 @@ export async function playCorrectSound() {
   gain.connect(ctx.destination)
 
   osc.type = 'sine'
-  osc.frequency.setValueAtTime(523, ctx.currentTime) // C5
-  osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1) // E5
-  osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2) // G5
+  osc.frequency.setValueAtTime(523, ctx.currentTime)
+  osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1)
+  osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2)
 
   gain.gain.setValueAtTime(0.3, ctx.currentTime)
   gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4)
@@ -35,7 +38,7 @@ export async function playCorrectSound() {
 }
 
 export async function playWrongSound() {
-  if (!(await isSoundEnabled())) return
+  if (!isSoundEnabled()) return
   const ctx = getCtx()
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()

@@ -1,26 +1,46 @@
-# 豆豆背单词
+# 豆豆 / Josh 背单词
 
-基于 Vue 3 + Vite 的单词学习应用，支持多词库、多学习计划、考试模式。
+Vue 3 学员端 + Fastify API。本地用 **SQLite**（不需要 Docker）；GCP 生产用 Cloud SQL Postgres。
 
-## 功能特性
+## 本地开发（无 Docker）
 
-- 多词库支持：从 CDN 自动同步词库
-- 多学习计划：自由配置词库、题型和数量
-- SM-2 间隔重复算法智能选词
-- 三种题型：看英文选中文、看中文写英文、例句填空
-- 考试模式：独立的考试功能，带加权评分
-- 实时进度保存：刷新页面不丢失
-- 学习记录：按日期展示完整学习历史
-- 数据备份：JSON 导入/导出
-
-## 开发
+需要 Node.js。
 
 ```bash
+cp .env.example .env
+cp .env.example server/.env
 npm install
+npm install --prefix server
 ./scripts/test.sh
 ```
 
-开发服务器默认运行在 http://localhost:5173
+或分步：
+
+```bash
+npm run local:prepare   # 生成 Prisma client + SQLite + 导入词库/管理员
+npm run seed            # 如需重新导入
+npm run dev
+```
+
+- 学员 / 管理端：http://localhost:5173
+- API：http://localhost:3000
+- 默认管理员：`admin` / `changeme`
+- 数据库文件：`server/data/local.db`
+
+## 本地生产形态测试（仍无 Docker）
+
+构建前端，由 Fastify 同端口托管，并做冒烟：
+
+```bash
+./scripts/local-deploy.sh
+```
+
+打开 http://localhost:8080 ，账号 `admin` / `changeme`。
+
+```bash
+./scripts/local-deploy.sh smoke
+./scripts/local-deploy.sh down
+```
 
 ## 构建
 
@@ -28,62 +48,32 @@ npm install
 npm run build
 ```
 
-产物在 `dist/` 目录：
-- `remember_words.html` — 入口页面
-- `remember_words/` — JS/CSS 资源
+前端产物在 `dist/`。生产环境由 Fastify 同时提供 API 和静态页面。
 
-## 发布
+## 发布到 GCP
 
-需要 Python 依赖：
+生产镜像仍使用 Postgres（Cloud SQL）。一次性创建资源：
 
 ```bash
-pip install -r requirements.txt
+export GCP_PROJECT=your-project
+export GCP_REGION=asia-east1
+export BOOTSTRAP_ADMIN_PASSWORD='a-strong-password'
+./scripts/gcp/setup.sh
 ```
-
-执行发布：
 
 ```bash
-python scripts/deploy.py
+GCP_PROJECT=your-project ./scripts/gcp/deploy.sh
+GCP_PROJECT=your-project ./scripts/gcp/seed.sh
 ```
 
-会自动构建并上传到七牛云，发布后访问：
-https://statics01.readland.cn/remember_words.html
+可选：`docker compose` 仅在你想本地对照 Postgres 时使用，不是日常开发依赖。
 
-## 词库管理
+## 词库 CSV
 
-词库源文件放在 `datasets/` 目录，通过 `datasets/index.yaml` 描述元数据。
+后台上传的 CSV 与原来一致（v2，6 列，可无表头）：
 
-CSV 格式（v2，6列）：
 ```
 english,chinese,phonetic,exampleEn,exampleCn,explanation
 ```
 
-分班考试 Excel 高频词表可通过脚本导入并替换 `placement_1`：
-```bash
-python3 -m nltk.downloader cmudict
-python3 scripts/import_placement_xlsx.py "/path/to/wordbook.xlsx"
-```
-
-源表需包含 `序号、单词、词频、释意` 四列。脚本会从
-`scripts/data/placement_1_examples.csv` 合并逐词编写的双语例句，补充 IPA
-并标注明确的复数形式；源表与例句表不一致时会终止导入。原表词频仅用于
-确定词条顺序，不写入会在学习页展示的说明字段。
-
-发布时会自动计算 MD5、生成 index.csv 并上传到 CDN。
-
-## 项目结构
-
-```
-src/
-  main.ts          # 入口
-  App.vue          # 根组件 + 底部 TabBar
-  router/          # Vue Router (hash mode)
-  stores/          # Pinia stores
-  views/           # 页面组件
-  components/      # 通用组件
-  lib/             # 工具库（存储、SM-2、同步等）
-datasets/          # 词库源文件
-scripts/
-  test.sh          # 启动开发服务器
-  deploy.py        # 构建 + 发布到七牛云
-```
+仓库 `datasets/` 会在 seed / `local-deploy` 时批量导入。

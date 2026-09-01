@@ -1,1 +1,33 @@
-{"name":"remember-the-small-words","private":true,"version":"1.0.0","type":"module","scripts":{"dev":"vite","build":"vite build","preview":"vite preview"},"dependencies":{"pinia":"^3.0.4","vue":"^3.5.35","vue-router":"^5.1.0"},"devDependencies":{"@types/canvas-confetti":"^1.9.0","@types/papaparse":"^5.5.2","@vitejs/plugin-vue":"^6.0.7","canvas-confetti":"^1.9.4","marked":"^18.0.5","papaparse":"^5.5.3","typescript":"^6.0.3","vite":"^8.0.16","vue-tsc":"^3.3.3"}}
+{
+  "name": "remember-the-small-words",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,green \"vite\" \"npm run dev --prefix server\"",
+    "dev:web": "vite",
+    "dev:api": "npm run dev --prefix server",
+    "build": "vite build",
+    "preview": "vite preview",
+    "seed": "npm run seed --prefix server",
+    "local:prepare": "./scripts/local-deploy.sh prepare",
+    "local:deploy": "./scripts/local-deploy.sh",
+    "local:down": "./scripts/local-deploy.sh down",
+    "test:local": "./scripts/test.sh"
+  },
+  "dependencies": {
+    "canvas-confetti": "^1.9.4",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.35",
+    "vue-router": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "concurrently": "^9.2.1",
+    "marked": "^18.0.5",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vue-tsc": "^3.3.3"
+  }
+}

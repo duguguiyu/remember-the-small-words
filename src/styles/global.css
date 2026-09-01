@@ -84,6 +84,18 @@ body::before {
   z-index: 1;
 }
 
+html.wide-layout #app,
+html.login-layout #app {
+  max-width: none;
+}
+
+html.wide-layout body {
+  background:
+    radial-gradient(circle at 8% 0%, #FFE8C9 0%, transparent 32%),
+    radial-gradient(circle at 92% 12%, #FFD6C8 0%, transparent 28%),
+    linear-gradient(165deg, #FFF6EA 0%, #F7E6D4 55%, #F3D5C8 100%);
+}
+
 button {
   cursor: pointer;
   border: none;

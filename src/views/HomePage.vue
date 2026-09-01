@@ -5,8 +5,8 @@ import { usePlansStore } from '@/stores/plans'
 import { useSessionsStore } from '@/stores/sessions'
 import { useWordbooksStore } from '@/stores/wordbooks'
 import { useProgressStore } from '@/stores/progress'
-import { Storage, KEYS } from '@/lib/storage'
-import { getBeijingDateStr } from '@/lib/date'
+import { useStreakStore } from '@/stores/streak'
+import { useSettingsStore } from '@/stores/settings'
 import PlanCard from '@/components/PlanCard.vue'
 
 const router = useRouter()
@@ -14,17 +14,16 @@ const plansStore = usePlansStore()
 const sessionsStore = useSessionsStore()
 const wordbooksStore = useWordbooksStore()
 const progressStore = useProgressStore()
+const streakStore = useStreakStore()
+const settingsStore = useSettingsStore()
 
 const showResumeDialog = ref(false)
-const backupReminder = ref(false)
-const streak = ref({ count: 0, lastDay: '' })
 
 const completedPlanIds = computed(() => sessionsStore.getTodayCompletedPlanIds())
 const inProgressPlanIds = computed(() => {
-  const today = getBeijingDateStr()
-  return sessionsStore.sessions
-    .filter((s) => s.date === today && s.status === 'in_progress' && s.planId)
-    .map((s) => s.planId!)
+  const current = progressStore.current
+  if (current?.type === 'learn' && current.planId) return [current.planId]
+  return []
 })
 
 onMounted(async () => {
@@ -33,24 +32,13 @@ onMounted(async () => {
     sessionsStore.load(),
     wordbooksStore.load(),
     progressStore.load(),
+    streakStore.load(),
+    settingsStore.load(),
   ])
-
-  streak.value = await Storage.get(KEYS.STREAK, { count: 0, lastDay: '' })
 
   if (progressStore.current) {
     showResumeDialog.value = true
   }
-
-  const lastBackup = await Storage.get<string | null>(KEYS.LAST_BACKUP, null)
-  if (lastBackup) {
-    const diff = Date.now() - new Date(lastBackup).getTime()
-    if (diff > 3 * 24 * 3600 * 1000) {
-      backupReminder.value = true
-    }
-  } else {
-    backupReminder.value = true
-  }
-
 })
 
 function startPlan(planId: string) {
@@ -82,21 +70,16 @@ async function discardSession() {
   <div class="home-page">
     <header class="home-header">
       <h1>Josh 背单词</h1>
-      <div class="streak-badge" v-if="streak.count > 0">
-        🔥 {{ streak.count }}天
+      <div class="streak-badge" v-if="streakStore.count > 0">
+        🔥 {{ streakStore.count }}天
       </div>
     </header>
 
-    <div v-if="wordbooksStore.syncing" class="sync-bar">正在同步词库...</div>
+    <div v-if="wordbooksStore.syncing" class="sync-bar">正在加载词库...</div>
     <div v-if="wordbooksStore.lastSyncError" class="sync-error">
-      词库同步失败: {{ wordbooksStore.lastSyncError }}
+      词库加载失败: {{ wordbooksStore.lastSyncError }}
     </div>
 
-    <div v-if="backupReminder" class="backup-reminder" @click="router.push({ name: 'settings' })">
-      ⚠️ 已超过3天未备份数据，点击前往备份
-    </div>
-
-    <!-- Resume dialog -->
     <div v-if="showResumeDialog" class="resume-dialog">
       <div class="resume-content">
         <p>检测到未完成的学习进度</p>
@@ -107,7 +90,6 @@ async function discardSession() {
       </div>
     </div>
 
-    <!-- Plan cards -->
     <section class="plans-section">
       <div v-if="plansStore.plans.length === 0" class="empty-state">
         <p>还没有学习计划</p>
@@ -123,7 +105,6 @@ async function discardSession() {
       />
     </section>
 
-    <!-- Exam entry -->
     <section class="exam-section">
       <button class="btn-exam" @click="startExam">
         📝 开始考试
@@ -185,22 +166,6 @@ async function discardSession() {
   border: 2px solid #FFD0D0;
   border-radius: var(--r-sm);
   margin-bottom: 12px;
-}
-
-.backup-reminder {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #7A5400;
-  background: linear-gradient(135deg, #FFF1C5, #FFE082);
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 2.5px solid #F0C040;
-  margin-bottom: 14px;
-  cursor: pointer;
-  box-shadow: 0 4px 0 rgba(61,43,31,.08);
 }
 
 .resume-dialog {

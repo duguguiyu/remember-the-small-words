@@ -1,4 +1,3 @@
-qiniu
 pyyaml
 openpyxl
 nltk

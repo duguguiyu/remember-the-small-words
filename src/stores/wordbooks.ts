@@ -1,51 +1,29 @@
 import { defineStore } from 'pinia'
-import { ref, toRaw } from 'vue'
+import { ref } from 'vue'
 import type { Wordbook } from '@/lib/types'
-import { Storage, KEYS } from '@/lib/storage'
-import { syncWordbooks } from '@/lib/sync'
+import { api } from '@/lib/api'
 
 export const useWordbooksStore = defineStore('wordbooks', () => {
   const wordbooks = ref<Wordbook[]>([])
   const syncing = ref(false)
   const lastSyncError = ref<string | null>(null)
+  let inflight: Promise<void> | null = null
 
   async function load() {
-    wordbooks.value = await Storage.get<Wordbook[]>(KEYS.WORDBOOKS, [])
-    await doSync()
-  }
-
-  async function doSync() {
-    if (syncing.value) return
+    if (inflight) return inflight
     syncing.value = true
     lastSyncError.value = null
-    try {
-      const updated = await syncWordbooks(wordbooks.value)
-      wordbooks.value = updated
-      await save()
-    } catch (e: any) {
-      lastSyncError.value = e.message
-    } finally {
-      syncing.value = false
-    }
-  }
-
-  async function save() {
-    await Storage.set(KEYS.WORDBOOKS, JSON.parse(JSON.stringify(toRaw(wordbooks.value))))
-  }
-
-  async function setWordbooks(books: Wordbook[]) {
-    wordbooks.value = books
-    await save()
-  }
-
-  async function upsertWordbook(book: Wordbook) {
-    const idx = wordbooks.value.findIndex((w) => w.id === book.id)
-    if (idx >= 0) {
-      wordbooks.value[idx] = book
-    } else {
-      wordbooks.value.push(book)
-    }
-    await save()
+    inflight = (async () => {
+      try {
+        wordbooks.value = await api<Wordbook[]>('/api/wordbooks')
+      } catch (e: any) {
+        lastSyncError.value = e.message
+      } finally {
+        syncing.value = false
+        inflight = null
+      }
+    })()
+    return inflight
   }
 
   function getWordbookById(id: string): Wordbook | undefined {
@@ -64,11 +42,17 @@ export const useWordbooksStore = defineStore('wordbooks', () => {
     syncing,
     lastSyncError,
     load,
-    save,
-    doSync,
-    setWordbooks,
-    upsertWordbook,
     getWordbookById,
     getWordsByWordbookIds,
+    save: async () => {},
+    doSync: load,
+    setWordbooks: async (books: Wordbook[]) => {
+      wordbooks.value = books
+    },
+    upsertWordbook: async (book: Wordbook) => {
+      const idx = wordbooks.value.findIndex((w) => w.id === book.id)
+      if (idx >= 0) wordbooks.value[idx] = book
+      else wordbooks.value.push(book)
+    },
   }
 })

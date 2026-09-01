@@ -1,0 +1,52 @@
+services:
+  # Optional only — everyday local/dev uses SQLite and does not need Docker.
+  # docker compose up -d db
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rtsw
+      POSTGRES_PASSWORD: rtsw
+      POSTGRES_DB: rtsw
+    ports:
+      - "5432:5432"
+    volumes:
+      - rtsw_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rtsw -d rtsw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    profiles: ["local"]
+    build: .
+    ports:
+      - "${LOCAL_PORT:-8080}:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: postgresql://rtsw:rtsw@db:5432/rtsw
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-changeme}
+      DATASETS_DIR: /app/datasets
+      PUBLIC_DIR: /app/server/public
+      COOKIE_SECURE: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  rtsw_pg:

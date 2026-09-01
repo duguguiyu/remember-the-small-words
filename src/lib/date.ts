@@ -9,6 +9,12 @@ export function getBeijingDateStr(): string {
   return d.toISOString().slice(0, 10)
 }
 
+export function getBeijingYesterdayStr(): string {
+  const d = getBeijingDate()
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
 export function getDateRange(startDate: string, endDate: string): string[] {
   const dates: string[] = []
   const start = new Date(startDate)

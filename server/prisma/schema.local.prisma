@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         String
+  disabled     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  plans      LearningPlan[]
+  sessions   SessionRecord[]
+  wordStats  WordStat[]
+  streak     Streak?
+  settings   Settings?
+  inProgress InProgress?
+}
+
+model Wordbook {
+  id           String   @id
+  name         String
+  category     String
+  categoryName String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  words        Word[]
+}
+
+model Word {
+  id           String   @id @default(cuid())
+  wordbookId   String
+  wordbook     Wordbook @relation(fields: [wordbookId], references: [id], onDelete: Cascade)
+  english      String
+  chinese      String
+  phonetic     String
+  exampleEn    String
+  exampleCn    String
+  explanation  String
+  sortOrder    Int
+
+  @@index([wordbookId])
+}
+
+model LearningPlan {
+  id                    String   @id
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  wordbookIds           Json
+  englishToChineseCount Int
+  chineseToEnglishCount Int
+  fillBlankCount        Int
+  color                 String
+  createdAt             DateTime @default(now())
+
+  @@index([userId])
+}
+
+model SessionRecord {
+  id          String   @id
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  date        String
+  planId      String?
+  planName    String
+  planColor   String
+  startTime   String
+  endTime     String?
+  words       Json
+  rounds      Json
+  totalRounds Int
+  score       Float?
+  status      String
+
+  @@index([userId, date])
+}
+
+model WordStat {
+  userId         String
+  english        String
+  reviewCount    Int
+  correctCount   Int
+  wrongCount     Int
+  lastReviewTime String?
+  nextReviewTime String?
+  easeFactor     Float
+  interval       Int
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, english])
+}
+
+model Streak {
+  userId  String @id
+  count   Int
+  lastDay String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Settings {
+  userId       String  @id
+  ttsEnabled   Boolean @default(true)
+  soundEnabled Boolean @default(true)
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model InProgress {
+  userId String @id
+  state  Json
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

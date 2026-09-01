@@ -6,10 +6,11 @@ import { useWordbooksStore } from '@/stores/wordbooks'
 import { useWordsStore } from '@/stores/words'
 import { useSessionsStore } from '@/stores/sessions'
 import { useProgressStore } from '@/stores/progress'
+import { useStreakStore } from '@/stores/streak'
+import { useSettingsStore } from '@/stores/settings'
 import { selectWords } from '@/lib/sm2'
 import { generateQuestions, checkAnswer } from '@/lib/questions'
-import { getBeijingDateStr } from '@/lib/date'
-import { Storage, KEYS } from '@/lib/storage'
+import { getBeijingDateStr, getBeijingYesterdayStr } from '@/lib/date'
 import { playCorrectSound, playWrongSound } from '@/lib/sound'
 import type { Word, Question, QuestionResult, Round, InProgressState } from '@/lib/types'
 import CountdownTimer from '@/components/CountdownTimer.vue'
@@ -22,6 +23,8 @@ const wordbooksStore = useWordbooksStore()
 const wordsStore = useWordsStore()
 const sessionsStore = useSessionsStore()
 const progressStore = useProgressStore()
+const streakStore = useStreakStore()
+const settingsStore = useSettingsStore()
 
 const phase = ref<'preview' | 'confirm' | 'test' | 'review' | 'complete'>('preview')
 const previewIndex = ref(0)
@@ -59,6 +62,7 @@ onMounted(async () => {
     wordsStore.load(),
     sessionsStore.load(),
     progressStore.load(),
+    settingsStore.load(),
   ])
 
   if (progressStore.current && progressStore.current.type === 'learn') {
@@ -265,19 +269,14 @@ async function completeLearning() {
   phase.value = 'complete'
   confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } })
 
-  const streak = await Storage.get(KEYS.STREAK, { count: 0, lastDay: '' })
   const today = getBeijingDateStr()
-  if (streak.lastDay !== today) {
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().slice(0, 10)
-    if (streak.lastDay === yesterdayStr) {
-      streak.count++
-    } else {
-      streak.count = 1
-    }
-    streak.lastDay = today
-    await Storage.set(KEYS.STREAK, streak)
+  await streakStore.load()
+  if (streakStore.lastDay !== today) {
+    const yesterdayStr = getBeijingYesterdayStr()
+    await streakStore.save({
+      count: streakStore.lastDay === yesterdayStr ? streakStore.count + 1 : 1,
+      lastDay: today,
+    })
   }
 
   await sessionsStore.addSession({

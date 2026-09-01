@@ -37,7 +37,7 @@ const groupedWordbooks = computed(() => {
 
     <div v-if="wordbooksStore.wordbooks.length === 0" class="empty-state">
       <p>暂无词库数据</p>
-      <p class="hint">词库将从服务端自动同步</p>
+      <p class="hint">词库由老师在后台维护</p>
     </div>
 
     <div v-for="(group, category) in groupedWordbooks" :key="category" class="category-group">

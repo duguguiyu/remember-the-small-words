@@ -1,42 +1,37 @@
 import { defineStore } from 'pinia'
-import { ref, toRaw } from 'vue'
+import { ref } from 'vue'
 import type { LearningPlan } from '@/lib/types'
-import { Storage, KEYS } from '@/lib/storage'
 import { PLAN_COLORS } from '@/lib/types'
+import { api } from '@/lib/api'
 
 export const usePlansStore = defineStore('plans', () => {
   const plans = ref<LearningPlan[]>([])
 
   async function load() {
-    plans.value = await Storage.get<LearningPlan[]>(KEYS.PLANS, [])
-  }
-
-  async function save() {
-    await Storage.set(KEYS.PLANS, JSON.parse(JSON.stringify(toRaw(plans.value))))
+    plans.value = await api<LearningPlan[]>('/api/plans')
   }
 
   async function addPlan(plan: Omit<LearningPlan, 'id' | 'createdAt'>) {
-    const newPlan: LearningPlan = {
-      ...plan,
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      createdAt: Date.now(),
-    }
-    plans.value.push(newPlan)
-    await save()
-    return newPlan
+    const created = await api<LearningPlan>('/api/plans', {
+      method: 'POST',
+      body: JSON.stringify(plan),
+    })
+    plans.value.push(created)
+    return created
   }
 
   async function updatePlan(id: string, updates: Partial<LearningPlan>) {
+    const updated = await api<LearningPlan>(`/api/plans/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
     const idx = plans.value.findIndex((p) => p.id === id)
-    if (idx >= 0) {
-      plans.value[idx] = { ...plans.value[idx], ...updates }
-      await save()
-    }
+    if (idx >= 0) plans.value[idx] = updated
   }
 
   async function removePlan(id: string) {
+    await api(`/api/plans/${id}`, { method: 'DELETE' })
     plans.value = plans.value.filter((p) => p.id !== id)
-    await save()
   }
 
   function getRandomColor(): string {
@@ -48,5 +43,5 @@ export const usePlansStore = defineStore('plans', () => {
     return PLAN_COLORS[Math.floor(Math.random() * PLAN_COLORS.length)]
   }
 
-  return { plans, load, save, addPlan, updatePlan, removePlan, getRandomColor }
+  return { plans, load, save: async () => {}, addPlan, updatePlan, removePlan, getRandomColor }
 })

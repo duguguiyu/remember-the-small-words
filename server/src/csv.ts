@@ -1,13 +1,21 @@
 import Papa from 'papaparse'
-import type { Word } from './types'
 
-export function parseWordsCSV(csvText: string): Word[] {
+export interface ParsedWord {
+  english: string
+  chinese: string
+  phonetic: string
+  exampleEn: string
+  exampleCn: string
+  explanation: string
+}
+
+export function parseWordsCSV(csvText: string): ParsedWord[] {
   const result = Papa.parse(csvText, { skipEmptyLines: true })
   const rows = result.data as string[][]
   if (rows.length === 0) return []
 
   const fmt = detectFormat(rows)
-  const words: Word[] = []
+  const words: ParsedWord[] = []
   const headerWords = ['英文', 'english', 'word', '单词']
 
   for (const row of rows) {
@@ -31,7 +39,7 @@ function detectFormat(rows: string[][]): 'v1' | 'v2' {
   return 'v1'
 }
 
-function parseRow(r: string[], fmt: 'v1' | 'v2'): Word {
+function parseRow(r: string[], fmt: 'v1' | 'v2'): ParsedWord {
   if (fmt === 'v2') {
     return {
       english: (r[0] || '').trim(),
@@ -50,32 +58,4 @@ function parseRow(r: string[], fmt: 'v1' | 'v2'): Word {
     exampleCn: '',
     explanation: r.slice(3).join(',').trim(),
   }
-}
-
-export interface IndexEntry {
-  id: string
-  name: string
-  category: string
-  categoryName: string
-  fileMd5: string
-}
-
-export function parseIndexCSV(csvText: string): IndexEntry[] {
-  const result = Papa.parse(csvText, { skipEmptyLines: true })
-  const rows = result.data as string[][]
-  if (rows.length < 2) return []
-
-  const entries: IndexEntry[] = []
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i]
-    if (r.length < 5) continue
-    entries.push({
-      id: (r[0] || '').trim(),
-      name: (r[1] || '').trim(),
-      category: (r[2] || '').trim(),
-      categoryName: (r[3] || '').trim(),
-      fileMd5: (r[4] || '').trim(),
-    })
-  }
-  return entries
 }

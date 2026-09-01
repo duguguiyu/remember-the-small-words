@@ -1,4 +1,5 @@
 export interface Word {
+  id?: string
   english: string
   chinese: string
   phonetic: string
@@ -12,7 +13,6 @@ export interface Wordbook {
   name: string
   category: string
   categoryName: string
-  md5: string
   words: Word[]
 }
 
