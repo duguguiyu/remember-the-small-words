@@ -16,6 +16,8 @@ const authStore = useAuthStore()
 
 const showPlanEditor = ref(false)
 const editingPlanId = ref<string | null>(null)
+const planError = ref('')
+const planSaving = ref(false)
 const planForm = reactive({
   name: '',
   wordbookIds: [] as string[],
@@ -40,7 +42,8 @@ async function logout() {
 
 function openNewPlan() {
   editingPlanId.value = null
-  planForm.name = ''
+  planError.value = ''
+  planForm.name = '每日单词'
   planForm.wordbookIds = []
   planForm.englishToChineseCount = 10
   planForm.chineseToEnglishCount = 10
@@ -52,6 +55,7 @@ function openNewPlan() {
 
 function openEditPlan(plan: LearningPlan) {
   editingPlanId.value = plan.id
+  planError.value = ''
   planForm.name = plan.name
   planForm.wordbookIds = [...plan.wordbookIds]
   planForm.englishToChineseCount = plan.englishToChineseCount
@@ -69,21 +73,45 @@ function openEditPlan(plan: LearningPlan) {
 }
 
 async function savePlan() {
-  if (!planForm.name.trim()) return
-  if (planForm.wordbookIds.length === 0) return
-
-  if (editingPlanId.value) {
-    await plansStore.updatePlan(editingPlanId.value, { ...planForm })
-  } else {
-    await plansStore.addPlan({ ...planForm })
+  planError.value = ''
+  if (!planForm.name.trim()) {
+    planError.value = '请填写计划名称（在弹窗最上方）'
+    document.querySelector<HTMLInputElement>('.plan-name-input')?.focus()
+    return
   }
-  showPlanEditor.value = false
+  if (planForm.wordbookIds.length === 0) {
+    planError.value = wordbooksStore.wordbooks.length === 0
+      ? '还没有词库，请先让管理员导入词库后再建计划'
+      : '请至少选择一个词库（点分类展开后勾选）'
+    return
+  }
+
+  planSaving.value = true
+  try {
+    if (editingPlanId.value) {
+      await plansStore.updatePlan(editingPlanId.value, { ...planForm })
+    } else {
+      await plansStore.addPlan({ ...planForm })
+    }
+    showPlanEditor.value = false
+  } catch (e: any) {
+    planError.value = e?.message || '保存失败'
+  } finally {
+    planSaving.value = false
+  }
 }
 
 async function deletePlan() {
-  if (editingPlanId.value) {
+  if (!editingPlanId.value) return
+  planError.value = ''
+  planSaving.value = true
+  try {
     await plansStore.removePlan(editingPlanId.value)
     showPlanEditor.value = false
+  } catch (e: any) {
+    planError.value = e?.message || '删除失败'
+  } finally {
+    planSaving.value = false
   }
 }
 
@@ -182,12 +210,20 @@ async function saveSettings() {
       <div class="editor-panel">
         <div class="editor-header">
           <h3>{{ editingPlanId ? '编辑计划' : '新建计划' }}</h3>
-          <button class="btn-close" @click="showPlanEditor = false">✕</button>
+          <button type="button" class="btn-close" @click="showPlanEditor = false">✕</button>
         </div>
+
+        <p v-if="planError" class="plan-error">{{ planError }}</p>
 
         <div class="form-group">
           <label>计划名称</label>
-          <input v-model="planForm.name" placeholder="例如：每日单词" />
+          <input
+            v-model="planForm.name"
+            class="plan-name-input"
+            type="text"
+            placeholder="例如：每日单词"
+            maxlength="40"
+          />
         </div>
 
         <div class="form-group">
@@ -205,7 +241,10 @@ async function saveSettings() {
 
         <div class="form-group">
           <label>选择词库</label>
-          <div class="wordbook-selector">
+          <p v-if="wordbooksStore.wordbooks.length === 0" class="empty-hint">
+            {{ wordbooksStore.lastSyncError || '暂无词库，请先在管理后台导入或运行 seed' }}
+          </p>
+          <div v-else class="wordbook-selector">
             <div v-for="group in groupedWordbooks" :key="group.category" class="wb-category">
               <div class="wb-category-header" @click="toggleCategory(group.category)">
                 <input
@@ -264,8 +303,16 @@ async function saveSettings() {
         </div>
 
         <div class="editor-actions">
-          <button class="btn-save" @click="savePlan">保存</button>
-          <button v-if="editingPlanId" class="btn-delete" @click="deletePlan">删除计划</button>
+          <button type="button" class="btn-save" :disabled="planSaving" @click="savePlan">
+            {{ planSaving ? '保存中…' : '保存' }}
+          </button>
+          <button
+            v-if="editingPlanId"
+            type="button"
+            class="btn-delete"
+            :disabled="planSaving"
+            @click="deletePlan"
+          >删除计划</button>
         </div>
       </div>
     </div>
@@ -576,6 +623,16 @@ async function saveSettings() {
   color: var(--ink);
 }
 
+.plan-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c62828;
+  background: #ffebee;
+  border-radius: 10px;
+}
+
 .editor-actions {
   display: flex;
   flex-direction: column;
@@ -592,6 +649,11 @@ async function saveSettings() {
   font-weight: 700;
   box-shadow: 0 5px 0 #C04428;
   transition: transform .12s, box-shadow .12s;
+}
+
+.btn-save:disabled {
+  opacity: 0.6;
+  box-shadow: 0 2px 0 #C04428;
 }
 
 .btn-save:active {

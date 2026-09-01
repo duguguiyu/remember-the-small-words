@@ -102,10 +102,6 @@ router.beforeEach(async (to) => {
     return { name: 'home' }
   }
 
-  if (auth.user.role === 'admin' && !isAdminRoute) {
-    return { name: 'admin-users' }
-  }
-
   return true
 })
 

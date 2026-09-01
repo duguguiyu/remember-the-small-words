@@ -14,6 +14,13 @@ const tabs = [
 function navigate(name: string) {
   router.push({ name })
 }
+
+function isActive(name: string) {
+  if (name === 'wordbook') {
+    return route.name === 'wordbook' || route.name === 'wordbook-detail'
+  }
+  return route.name === name
+}
 </script>
 
 <template>
@@ -21,7 +28,7 @@ function navigate(name: string) {
     <button
       v-for="tab in tabs"
       :key="tab.name"
-      :class="['tab-item', { active: route.name === tab.name }]"
+      :class="['tab-item', { active: isActive(tab.name) }]"
       @click="navigate(tab.name)"
     >
       <span class="tab-icon">{{ tab.icon }}</span>

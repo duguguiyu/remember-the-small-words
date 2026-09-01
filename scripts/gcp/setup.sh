@@ -3,24 +3,39 @@ set -euo pipefail
 
 # One-time GCP resources for Josh 背单词.
 # Usage:
-#   export GCP_PROJECT=your-project
-#   export GCP_REGION=asia-east1
 #   ./scripts/gcp/setup.sh
+#   ./scripts/gcp/setup.sh --reconfigure   # ask again and rewrite local config
+#
+# First run guides you through project/admin settings and saves them to
+# scripts/gcp/.env.gcp (gitignored). Later runs reuse that file.
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PROJECT="${GCP_PROJECT:?Set GCP_PROJECT}"
-REGION="${GCP_REGION:-asia-east1}"
-INSTANCE="${CLOUD_SQL_INSTANCE:-rtsw-pg}"
-DB_NAME="${CLOUD_SQL_DB:-rtsw}"
-DB_USER="${CLOUD_SQL_USER:-rtsw}"
-REPO="${ARTIFACT_REPO:-rtsw}"
-SERVICE="${CLOUD_RUN_SERVICE:-rtsw}"
-ADMIN_USER="${BOOTSTRAP_ADMIN_USER:-admin}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=./common.sh
+source "$SCRIPT_DIR/common.sh"
 
-if [[ -z "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]]; then
-  echo "Set BOOTSTRAP_ADMIN_PASSWORD before running setup." >&2
-  exit 1
-fi
+RECONFIGURE=0
+for arg in "$@"; do
+  case "$arg" in
+    --reconfigure|-r) RECONFIGURE=1 ;;
+    -h|--help)
+      echo "Usage: $0 [--reconfigure]"
+      exit 0
+      ;;
+  esac
+done
+
+need_gcloud
+ensure_gcp_config "$RECONFIGURE"
+apply_gcp_defaults
+
+PROJECT="$GCP_PROJECT"
+REGION="$GCP_REGION"
+INSTANCE="$CLOUD_SQL_INSTANCE"
+DB_NAME="$CLOUD_SQL_DB"
+DB_USER="$CLOUD_SQL_USER"
+REPO="$ARTIFACT_REPO"
+SERVICE="$CLOUD_RUN_SERVICE"
+ADMIN_USER="$BOOTSTRAP_ADMIN_USER"
 
 if [[ -z "${DB_PASSWORD:-}" ]]; then
   DB_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
@@ -28,11 +43,14 @@ fi
 if [[ -z "${JWT_SECRET:-}" ]]; then
   JWT_SECRET="$(openssl rand -hex 32)"
 fi
+export DB_PASSWORD JWT_SECRET
+save_gcp_config_file
 
 gcloud config set project "$PROJECT"
 gcloud services enable \
   run.googleapis.com \
   sqladmin.googleapis.com \
+  sql-component.googleapis.com \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
   cloudbuild.googleapis.com
@@ -45,12 +63,24 @@ if ! gcloud artifacts repositories describe "$REPO" --location="$REGION" >/dev/n
 fi
 
 if ! gcloud sql instances describe "$INSTANCE" >/dev/null 2>&1; then
+  echo "Creating Cloud SQL instance (this can take several minutes)..."
+  # Low-traffic cost defaults:
+  # - ENTERPRISE + db-f1-micro = cheapest shared-core (~a few USD/mo + storage)
+  # - POSTGRES_16 alone defaults to ENTERPRISE_PLUS (rejects db-f1-micro)
+  # - zonal + 10GB disk + no auto-grow + 1 backup
+  # Override with CLOUD_SQL_TIER / CLOUD_SQL_STORAGE_GB if needed.
+  SQL_TIER="${CLOUD_SQL_TIER:-db-f1-micro}"
+  SQL_STORAGE_GB="${CLOUD_SQL_STORAGE_GB:-10}"
   gcloud sql instances create "$INSTANCE" \
     --database-version=POSTGRES_16 \
-    --tier=db-f1-micro \
+    --edition=ENTERPRISE \
+    --tier="$SQL_TIER" \
     --region="$REGION" \
-    --storage-size=10GB \
-    --availability-type=zonal
+    --storage-size="${SQL_STORAGE_GB}GB" \
+    --no-storage-auto-increase \
+    --availability-type=zonal \
+    --backup-start-time=03:00 \
+    --retained-backups-count=1
 fi
 
 if ! gcloud sql databases describe "$DB_NAME" --instance="$INSTANCE" >/dev/null 2>&1; then
@@ -88,6 +118,12 @@ for secret in rtsw-database-url rtsw-jwt-secret rtsw-bootstrap-admin-password; d
     --role="roles/secretmanager.secretAccessor" >/dev/null
 done
 
+# Allow Cloud Run / Jobs to open Cloud SQL sockets.
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member="serviceAccount:${RUNTIME_SA}" \
+  --role="roles/cloudsql.client" \
+  --quiet >/dev/null
+
 if ! gcloud run services describe "$SERVICE" --region="$REGION" >/dev/null 2>&1; then
   echo "Cloud Run service will be created on first deploy."
 fi
@@ -98,9 +134,8 @@ echo "  project:     $PROJECT"
 echo "  region:      $REGION"
 echo "  sql:         $CONNECTION_NAME"
 echo "  image repo:  ${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app"
+echo "  config:      $GCP_CONFIG_FILE"
 echo
 echo "Next:"
-echo "  GCP_PROJECT=$PROJECT GCP_REGION=$REGION BOOTSTRAP_ADMIN_USER=$ADMIN_USER ./scripts/gcp/deploy.sh"
-echo "  Then seed wordbooks: ./scripts/gcp/seed.sh"
-echo
-echo "Save DB_PASSWORD if you need to connect later (also stored in Secret Manager as rtsw-database-url)."
+echo "  ./scripts/gcp/deploy.sh"
+echo "  ./scripts/gcp/seed.sh"

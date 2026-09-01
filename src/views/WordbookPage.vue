@@ -35,7 +35,11 @@ const groupedWordbooks = computed(() => {
       <h2>词库</h2>
     </header>
 
-    <div v-if="wordbooksStore.wordbooks.length === 0" class="empty-state">
+    <div v-if="wordbooksStore.syncing && wordbooksStore.wordbooks.length === 0" class="loading-hint">
+      正在加载词库...
+    </div>
+
+    <div v-if="wordbooksStore.wordbooks.length === 0 && !wordbooksStore.syncing" class="empty-state">
       <p>暂无词库数据</p>
       <p class="hint">词库由老师在后台维护</p>
     </div>
@@ -69,6 +73,14 @@ const groupedWordbooks = computed(() => {
   font-size: 22px;
   font-weight: 700;
   color: var(--ink);
+}
+
+.loading-hint {
+  text-align: center;
+  padding: 24px;
+  color: var(--ink-light);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .empty-state {

@@ -27,6 +27,7 @@ export function generateQuestions(
       type: 'cn2en',
       prompt: w.chinese,
       correctAnswer: w.english,
+      exampleEn: w.exampleEn || '',
     })
   }
 
@@ -38,6 +39,7 @@ export function generateQuestions(
       prompt: w.chinese,
       correctAnswer: w.english,
       sentence: blankOutExample(w.exampleEn, w.english),
+      exampleEn: w.exampleEn,
       exampleCn: w.exampleCn || '',
     })
   }

@@ -75,6 +75,7 @@ export interface Question {
   correctAnswer: string
   options?: string[]
   sentence?: string
+  exampleEn?: string
   exampleCn?: string
 }
 

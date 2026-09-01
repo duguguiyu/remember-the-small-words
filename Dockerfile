@@ -14,7 +14,8 @@ RUN npm ci
 COPY server/prisma ./prisma
 COPY server/src ./src
 COPY server/tsconfig.json ./
-RUN npx prisma generate
+RUN npx prisma generate \
+  && test -f node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
 RUN npm run build
 
 FROM node:22-bookworm-slim

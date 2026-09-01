@@ -12,6 +12,8 @@ import { selectWords } from '@/lib/sm2'
 import { generateQuestions, checkAnswer } from '@/lib/questions'
 import { getBeijingDateStr, getBeijingYesterdayStr } from '@/lib/date'
 import { playCorrectSound, playWrongSound } from '@/lib/sound'
+import { speakEnglish } from '@/lib/tts'
+import { useQuestionTts } from '@/lib/useQuestionTts'
 import type { Word, Question, QuestionResult, Round, InProgressState } from '@/lib/types'
 import CountdownTimer from '@/components/CountdownTimer.vue'
 import confetti from 'canvas-confetti'
@@ -48,6 +50,7 @@ const planColor = ref('#4285F4')
 
 const currentWord = computed(() => allWords.value[previewIndex.value])
 const currentQuestion = computed(() => questions.value[questionIndex.value])
+const { speakEn2cnQuestion, speakFillBlankQuestion, speakCn2enQuestion } = useQuestionTts(phase, currentQuestion, questionIndex)
 const wrongQuestions = computed(() => {
   return questions.value.filter((q, i) => {
     const r = results.value[i]
@@ -171,13 +174,8 @@ function startTest() {
   saveProgress()
 }
 
-function speakSentence(sentence?: string) {
-  if (!sentence) return
-  const text = sentence.replace(/______/g, 'blank')
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'en-US'
-  utterance.rate = 0.85
-  speechSynthesis.speak(utterance)
+function speakWord(text: string) {
+  void speakEnglish(text, { rate: 0.85 })
 }
 
 function submitAnswer() {
@@ -298,15 +296,6 @@ async function completeLearning() {
   await progressStore.clear()
 }
 
-function speakWord(text: string) {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'en-US'
-    utterance.rate = 0.8
-    speechSynthesis.speak(utterance)
-  }
-}
-
 function goHome() {
   router.push({ name: 'home' })
 }
@@ -373,9 +362,39 @@ function goHome() {
 
         <div class="question-prompt">
           <template v-if="currentQuestion.type === 'fillBlank'">
-            <p class="sentence">{{ currentQuestion.sentence }}</p>
+            <div class="prompt-row">
+              <p class="sentence">{{ currentQuestion.sentence }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读例句"
+                @click="speakFillBlankQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
             <p v-if="currentQuestion.exampleCn" class="sentence-cn">{{ currentQuestion.exampleCn }}</p>
             <p v-else class="hint">{{ currentQuestion.prompt }}</p>
+          </template>
+          <template v-else-if="currentQuestion.type === 'en2cn'">
+            <div class="prompt-row">
+              <p class="prompt-text">{{ currentQuestion.prompt }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读单词"
+                @click="speakEn2cnQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
+          </template>
+          <template v-else-if="currentQuestion.type === 'cn2en'">
+            <div class="prompt-row">
+              <p class="prompt-text">{{ currentQuestion.prompt }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读英文"
+                @click="speakCn2enQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
           </template>
           <template v-else>
             <p class="prompt-text">{{ currentQuestion.prompt }}</p>
@@ -756,6 +775,18 @@ function goHome() {
   color: var(--ink);
   word-break: break-word;
   line-height: 1.2;
+}
+
+.prompt-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.prompt-row .prompt-text,
+.prompt-row .sentence {
+  margin-bottom: 0;
 }
 
 .sentence-row {

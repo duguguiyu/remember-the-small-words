@@ -11,6 +11,7 @@ import { generateQuestions, checkAnswer } from '@/lib/questions'
 import { computeExamScore } from '@/lib/scoring'
 import { getBeijingDateStr } from '@/lib/date'
 import { playCorrectSound, playWrongSound } from '@/lib/sound'
+import { useQuestionTts } from '@/lib/useQuestionTts'
 import type { Word, Question, QuestionResult, Round, InProgressState } from '@/lib/types'
 import confetti from 'canvas-confetti'
 
@@ -44,6 +45,7 @@ const examScore = ref<number | null>(null)
 const firstRoundResults = ref<QuestionResult[]>([])
 
 const currentQuestion = computed(() => questions.value[questionIndex.value])
+const { speakEn2cnQuestion, speakFillBlankQuestion, speakCn2enQuestion } = useQuestionTts(phase, currentQuestion, questionIndex)
 const wrongQuestions = computed(() => {
   return questions.value.filter((_, i) => results.value[i] && !results.value[i].correct)
 })
@@ -105,7 +107,10 @@ function toggleWordbook(id: string) {
 }
 
 function startExam() {
-  if (config.wordbookIds.length === 0) return
+  if (config.wordbookIds.length === 0) {
+    alert('请至少选择一个词库')
+    return
+  }
 
   sessionId.value = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
   const poolWords = wordbooksStore.getWordsByWordbookIds(config.wordbookIds)
@@ -142,15 +147,6 @@ function startExam() {
   rounds.value = []
   showFeedback.value = false
   saveProgress()
-}
-
-function speakSentence(sentence?: string) {
-  if (!sentence) return
-  const text = sentence.replace(/______/g, 'blank')
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'en-US'
-  utterance.rate = 0.85
-  speechSynthesis.speak(utterance)
 }
 
 function submitAnswer() {
@@ -339,9 +335,39 @@ function goHome() {
 
         <div class="question-prompt">
           <template v-if="currentQuestion.type === 'fillBlank'">
-            <p class="sentence">{{ currentQuestion.sentence }}</p>
+            <div class="prompt-row">
+              <p class="sentence">{{ currentQuestion.sentence }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读例句"
+                @click="speakFillBlankQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
             <p v-if="currentQuestion.exampleCn" class="sentence-cn">{{ currentQuestion.exampleCn }}</p>
             <p v-else class="hint">{{ currentQuestion.prompt }}</p>
+          </template>
+          <template v-else-if="currentQuestion.type === 'en2cn'">
+            <div class="prompt-row">
+              <p class="prompt-text">{{ currentQuestion.prompt }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读单词"
+                @click="speakEn2cnQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
+          </template>
+          <template v-else-if="currentQuestion.type === 'cn2en'">
+            <div class="prompt-row">
+              <p class="prompt-text">{{ currentQuestion.prompt }}</p>
+              <button
+                type="button"
+                class="btn-speak"
+                aria-label="朗读英文"
+                @click="speakCn2enQuestion(currentQuestion)"
+              >🔊</button>
+            </div>
           </template>
           <template v-else>
             <p class="prompt-text">{{ currentQuestion.prompt }}</p>
@@ -679,6 +705,18 @@ function goHome() {
   font-weight: 700;
   color: var(--ink);
   word-break: break-word;
+}
+
+.prompt-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.prompt-row .prompt-text,
+.prompt-row .sentence {
+  margin-bottom: 0;
 }
 
 .sentence-row {

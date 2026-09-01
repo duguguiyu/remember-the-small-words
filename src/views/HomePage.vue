@@ -3,7 +3,6 @@ import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlansStore } from '@/stores/plans'
 import { useSessionsStore } from '@/stores/sessions'
-import { useWordbooksStore } from '@/stores/wordbooks'
 import { useProgressStore } from '@/stores/progress'
 import { useStreakStore } from '@/stores/streak'
 import { useSettingsStore } from '@/stores/settings'
@@ -12,7 +11,6 @@ import PlanCard from '@/components/PlanCard.vue'
 const router = useRouter()
 const plansStore = usePlansStore()
 const sessionsStore = useSessionsStore()
-const wordbooksStore = useWordbooksStore()
 const progressStore = useProgressStore()
 const streakStore = useStreakStore()
 const settingsStore = useSettingsStore()
@@ -30,7 +28,6 @@ onMounted(async () => {
   await Promise.all([
     plansStore.load(),
     sessionsStore.load(),
-    wordbooksStore.load(),
     progressStore.load(),
     streakStore.load(),
     settingsStore.load(),
@@ -74,11 +71,6 @@ async function discardSession() {
         🔥 {{ streakStore.count }}天
       </div>
     </header>
-
-    <div v-if="wordbooksStore.syncing" class="sync-bar">正在加载词库...</div>
-    <div v-if="wordbooksStore.lastSyncError" class="sync-error">
-      词库加载失败: {{ wordbooksStore.lastSyncError }}
-    </div>
 
     <div v-if="showResumeDialog" class="resume-dialog">
       <div class="resume-content">

@@ -2,7 +2,8 @@
 import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWordbooksStore } from '@/stores/wordbooks'
-import type { Wordbook } from '@/lib/types'
+import { speakEnglish } from '@/lib/tts'
+import type { Wordbook, Word } from '@/lib/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,15 @@ onMounted(async () => {
 
 function goBack() {
   router.push('/wordbook')
+}
+
+function speakWord(word: Word) {
+  void speakEnglish(word.english, { rate: 0.85 })
+}
+
+function speakExample(word: Word) {
+  if (!word.exampleEn?.trim()) return
+  void speakEnglish(word.exampleEn, { rate: 0.88 })
 }
 </script>
 
@@ -42,11 +52,25 @@ function goBack() {
           <div class="word-main">
             <span class="word-en">{{ word.english }}</span>
             <span v-if="word.phonetic" class="word-phonetic">{{ word.phonetic }}</span>
+            <button
+              type="button"
+              class="btn-speak"
+              aria-label="朗读单词"
+              @click.stop="speakWord(word)"
+            >🔊</button>
           </div>
           <div class="word-cn">{{ word.chinese }}</div>
           <div v-if="word.explanation" class="word-explanation">{{ word.explanation }}</div>
           <div v-if="word.exampleEn" class="word-example">
-            <div class="example-en">{{ word.exampleEn }}</div>
+            <div class="example-row">
+              <div class="example-en">{{ word.exampleEn }}</div>
+              <button
+                type="button"
+                class="btn-speak btn-speak-sm"
+                aria-label="朗读例句"
+                @click.stop="speakExample(word)"
+              >🔊</button>
+            </div>
             <div v-if="word.exampleCn" class="example-cn">{{ word.exampleCn }}</div>
           </div>
         </div>
@@ -122,9 +146,39 @@ function goBack() {
 
 .word-main {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   margin-bottom: 4px;
+}
+
+.btn-speak {
+  flex-shrink: 0;
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.btn-speak-sm {
+  font-size: 16px;
+  margin-left: 0;
+}
+
+.btn-speak:active {
+  transform: scale(0.92);
+}
+
+.example-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.example-row .example-en {
+  flex: 1;
 }
 
 .word-en {

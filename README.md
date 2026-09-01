@@ -52,18 +52,30 @@ npm run build
 
 ## 发布到 GCP
 
-生产镜像仍使用 Postgres（Cloud SQL）。一次性创建资源：
+生产用 Cloud SQL Postgres + Cloud Run。脚本会读写本地配置 `scripts/gcp/.env.gcp`（已 gitignore）。
+
+低用量默认（控费）：
+- Cloud SQL：`ENTERPRISE` + `db-f1-micro`、单区、10GB 磁盘、不自动扩容、保留 1 份备份（主要固定费用）
+- Cloud Run：`min-instances=0`（空闲不计费）、最多 2 实例、512Mi
+
+第一次直接跑即可，没有配置时会交互询问并保存：
 
 ```bash
-export GCP_PROJECT=your-project
-export GCP_REGION=asia-east1
-export BOOTSTRAP_ADMIN_PASSWORD='a-strong-password'
-./scripts/gcp/setup.sh
+./scripts/gcp/setup.sh      # 建资源 + 写 .env.gcp
+./scripts/gcp/deploy.sh     # 构建并发布
+./scripts/gcp/seed.sh       # 导入词库和管理员
 ```
 
+之后再跑会跳过询问，直接用已保存的配置。需要改配置：
+
 ```bash
-GCP_PROJECT=your-project ./scripts/gcp/deploy.sh
-GCP_PROJECT=your-project ./scripts/gcp/seed.sh
+./scripts/gcp/setup.sh --reconfigure
+```
+
+也可先抄一份示例再编辑：
+
+```bash
+cp scripts/gcp/.env.gcp.example scripts/gcp/.env.gcp
 ```
 
 可选：`docker compose` 仅在你想本地对照 Postgres 时使用，不是日常开发依赖。
